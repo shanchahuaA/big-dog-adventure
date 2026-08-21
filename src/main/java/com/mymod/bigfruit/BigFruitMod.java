@@ -1,7 +1,9 @@
 package com.mymod.bigfruit;
 
+import com.mymod.bigfruit.item.ModItems;
+import com.mymod.bigfruit.registry.ModEntities;
+import com.mymod.bigfruit.registry.ModSounds;
 import net.fabricmc.api.ModInitializer;
-
 import net.minecraft.util.Identifier;
 
 import org.slf4j.Logger;
@@ -17,10 +19,9 @@ public class BigFruitMod implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
-		// This code runs as soon as Minecraft is in a mod-load-ready state.
-		// However, some things (like resources) may still be uninitialized.
-		// Proceed with mild caution.
-
+		ModEntities.register();
+		ModSounds.register();
+		ModItems.registerItems();
 		LOGGER.info("Hello Fabric world!");
 	}
 
