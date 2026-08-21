@@ -34,12 +34,15 @@ public class BigDogEntity extends PathAwareEntity {
     public static final int COOLDOWN_TICKS = 20;
     public static final int CHARGE_LOOP_INTERVAL = 122; // >= CHARGING_TICKS, single play (opencode P0)
     public static final double RANGE = 30.0; // +10 per user request
-    public static final double HALF_WIDTH = 1.0;
+    public static final double HALF_WIDTH = 1.5;
     public static final float DAMAGE = 4.0f;
     public static final int DAMAGE_INTERVAL = 10;
 
     private static final TrackedData<Integer> STATE = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.INTEGER);
     private static final TrackedData<Integer> CHARGE_PROGRESS = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.INTEGER);
+    private static final TrackedData<Float> FIRING_DIR_X = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.FLOAT);
+    private static final TrackedData<Float> FIRING_DIR_Z = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.FLOAT);
+    private static final TrackedData<Integer> FIRING_PROGRESS = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.INTEGER);
 
     public enum State {
         IDLE,
@@ -65,10 +68,11 @@ public class BigDogEntity extends PathAwareEntity {
 
     public static DefaultAttributeContainer.Builder createAttributes() {
         return PathAwareEntity.createMobAttributes()
-                .add(EntityAttributes.GENERIC_MAX_HEALTH, 40.0)
+                .add(EntityAttributes.GENERIC_MAX_HEALTH, 50.0)
                 .add(EntityAttributes.GENERIC_MOVEMENT_SPEED, 0.28)
                 .add(EntityAttributes.GENERIC_FOLLOW_RANGE, 32.0)
                 .add(EntityAttributes.GENERIC_KNOCKBACK_RESISTANCE, 0.2)
+                .add(EntityAttributes.GENERIC_ARMOR, 4.0)
                 .add(EntityAttributes.GENERIC_ATTACK_DAMAGE, 2.0);
     }
 
@@ -85,6 +89,9 @@ public class BigDogEntity extends PathAwareEntity {
         super.initDataTracker();
         this.dataTracker.startTracking(STATE, State.IDLE.ordinal());
         this.dataTracker.startTracking(CHARGE_PROGRESS, 0);
+        this.dataTracker.startTracking(FIRING_DIR_X, 0.0f);
+        this.dataTracker.startTracking(FIRING_DIR_Z, 1.0f);
+        this.dataTracker.startTracking(FIRING_PROGRESS, 0);
     }
 
     public State getState() {
@@ -99,9 +106,24 @@ public class BigDogEntity extends PathAwareEntity {
         return this.dataTracker.get(CHARGE_PROGRESS);
     }
 
+    public float getFiringDirXTracked() {
+        return this.dataTracker.get(FIRING_DIR_X);
+    }
+
+    public float getFiringDirZTracked() {
+        return this.dataTracker.get(FIRING_DIR_Z);
+    }
+
+    public int getFiringProgress() {
+        return this.dataTracker.get(FIRING_PROGRESS);
+    }
+
     @Override
     public boolean damage(DamageSource source, float amount) {
         boolean result = super.damage(source, amount);
+        if (!this.isAlive()) {
+            this.cancelAttack();
+        }
         if (!this.getWorld().isClient && result && amount > 0) {
             if (this.getState() != State.IDLE) {
                 return result;
@@ -119,6 +141,12 @@ public class BigDogEntity extends PathAwareEntity {
             }
         }
         return result;
+    }
+
+    @Override
+    public void onDeath(DamageSource damageSource) {
+        this.cancelAttack();
+        super.onDeath(damageSource);
     }
 
     private void startCharging() {
@@ -153,11 +181,10 @@ public class BigDogEntity extends PathAwareEntity {
         dir = dir.normalize();
         this.firingDirX = dir.x;
         this.firingDirZ = dir.z;
-
-        if (!this.getWorld().isClient) {
-            this.getWorld().playSound(null, this.getX(), this.getY(), this.getZ(),
-                    ModSounds.BIG_DOG_CALL, SoundCategory.HOSTILE, 2.0f, 1.0f);
-        }
+        this.dataTracker.set(FIRING_DIR_X, (float) dir.x);
+        this.dataTracker.set(FIRING_DIR_Z, (float) dir.z);
+        this.dataTracker.set(FIRING_PROGRESS, 0);
+        // Sound now handled client-side via EntityTrackingSoundInstance (no server world.playSound to avoid double play)
     }
 
     private void enterCooldown() {
@@ -171,6 +198,13 @@ public class BigDogEntity extends PathAwareEntity {
     public void tick() {
         super.tick();
         if (this.getWorld().isClient) {
+            return;
+        }
+        // Death truncation: stop attack immediately when dead/removed (opencode fix)
+        if (!this.isAlive() || this.isRemoved()) {
+            if (this.getState() == State.CHARGING || this.getState() == State.FIRING) {
+                this.cancelAttack();
+            }
             return;
         }
 
@@ -202,14 +236,7 @@ public class BigDogEntity extends PathAwareEntity {
             this.getLookControl().lookAt(this.revengeTarget, 30.0f, 30.0f);
         }
 
-        if (this.chargeLoopCooldown <= 0) {
-            this.getWorld().playSound(null, this.getX(), this.getY(), this.getZ(),
-                    ModSounds.BIG_DOG_CHARGE_LOOP, SoundCategory.HOSTILE, 1.2f, 1.0f);
-            this.chargeLoopCooldown = CHARGE_LOOP_INTERVAL;
-        } else {
-            this.chargeLoopCooldown--;
-        }
-
+        // Sound handled client-side via EntityTrackingSoundInstance (single play, no server world.playSound)
         this.chargingTicksRemaining--;
         int progress = (int) ((1.0 - (double) this.chargingTicksRemaining / CHARGING_TICKS) * 100);
         this.dataTracker.set(CHARGE_PROGRESS, MathHelper.clamp(progress, 0, 100));
@@ -222,6 +249,10 @@ public class BigDogEntity extends PathAwareEntity {
     private void tickFiring() {
         this.getNavigation().stop();
 
+        // Update firing progress for client beam (0..100)
+        int firingProgress = (int) ((1.0 - (double) this.firingTicksRemaining / FIRING_TICKS) * 100);
+        this.dataTracker.set(FIRING_PROGRESS, MathHelper.clamp(firingProgress, 0, 100));
+
         if (this.damageIntervalCooldown <= 0) {
             applySonicDamage();
             this.damageIntervalCooldown = DAMAGE_INTERVAL;
@@ -233,6 +264,7 @@ public class BigDogEntity extends PathAwareEntity {
 
         this.firingTicksRemaining--;
         if (this.firingTicksRemaining <= 0) {
+            this.dataTracker.set(FIRING_PROGRESS, 0);
             this.enterCooldown();
         }
     }
@@ -274,7 +306,13 @@ public class BigDogEntity extends PathAwareEntity {
             } catch (Throwable t) {
                 source = this.getDamageSources().mobAttack(this);
             }
-            target.damage(source, DAMAGE);
+            if (target.damage(source, DAMAGE)) {
+                // sonicBoom/mobbAttack 已有 0.4 自动击退（LivingEntity.damage 内 takeKnockback），此处额外 0.4 使总强度 0.8；takeKnockback 会取反向量，需传 -dir
+                target.takeKnockback(0.4, -dir.x, -dir.z);
+                if (target instanceof PlayerEntity) {
+                    target.velocityModified = true;
+                }
+            }
         }
     }
 

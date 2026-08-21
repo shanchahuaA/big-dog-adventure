@@ -15,8 +15,10 @@ import org.joml.Matrix4f;
 
 public class BigDogBillboardRenderer extends EntityRenderer<BigDogEntity> {
 
-    private static final Identifier TEXTURE = BigFruitMod.id("textures/entity/big_dog.png");
-    private static final RenderLayer LAYER = RenderLayer.getEntityCutoutNoCull(TEXTURE);
+    private static final Identifier TEXTURE_NOBARK = BigFruitMod.id("textures/entity/nobark.png");
+    private static final Identifier TEXTURE_BARK = BigFruitMod.id("textures/entity/bark.png");
+    private static final RenderLayer LAYER_NOBARK = RenderLayer.getEntityTranslucent(TEXTURE_NOBARK);
+    private static final RenderLayer LAYER_BARK = RenderLayer.getEntityTranslucent(TEXTURE_BARK);
 
     public BigDogBillboardRenderer(EntityRendererFactory.Context ctx) {
         super(ctx);
@@ -25,7 +27,7 @@ public class BigDogBillboardRenderer extends EntityRenderer<BigDogEntity> {
 
     @Override
     public Identifier getTexture(BigDogEntity entity) {
-        return TEXTURE;
+        return entity.getState() == BigDogEntity.State.FIRING ? TEXTURE_BARK : TEXTURE_NOBARK;
     }
 
     @Override
@@ -36,7 +38,8 @@ public class BigDogBillboardRenderer extends EntityRenderer<BigDogEntity> {
         MatrixStack.Entry entry = matrices.peek();
         Matrix4f posMatrix = entry.getPositionMatrix();
         Matrix3f normalMatrix = entry.getNormalMatrix();
-        VertexConsumer vertexConsumer = vertexConsumers.getBuffer(LAYER);
+        RenderLayer layer = entity.getState() == BigDogEntity.State.FIRING ? LAYER_BARK : LAYER_NOBARK;
+        VertexConsumer vertexConsumer = vertexConsumers.getBuffer(layer);
 
         float halfW = 0.6f;
         float halfH = 0.6f;
@@ -47,6 +50,10 @@ public class BigDogBillboardRenderer extends EntityRenderer<BigDogEntity> {
         vertex(vertexConsumer, posMatrix, normalMatrix, -halfW, halfH, 0, 0, light);
 
         matrices.pop();
+        // Sonic beam (yellow + rings) when firing
+        if (entity.getState() == BigDogEntity.State.FIRING) {
+            BigDogSonicBeamRenderer.render(entity, tickDelta, matrices, vertexConsumers, light);
+        }
         super.render(entity, yaw, tickDelta, matrices, vertexConsumers, light);
     }
 

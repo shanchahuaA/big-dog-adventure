@@ -168,3 +168,59 @@
 ### 待确认（需用户拍板后再替换正式梗图）
 
 - 是否需要微调音量/衰减距离，或保持 `1.2f/2.0f` 的现有 `playSound` 参数
+
+---
+
+## 第二次迭代：死亡截断、光波特效、平衡与贴图（本次新增 5 点，2026-08-22）
+
+### 用户新增要求（已确认细节）
+
+1.  **死亡音频**：大狗死亡后“大狗大狗…”仍在播放不合理，需修复——**立即截断**（而非自然播完），音频即攻击叫声，死亡即停。
+2.  **光波特效**：音波需可视化为**黄色光波**，光柱 + 多个平行于横截面的光环围绕。
+3.  **平衡**：生命 40→**50**，护甲略微提高至 **4**（`GENERIC_ARMOR`），横截面半宽 1.0→**1.5**（直径 3），距离保持 30 不变。
+4.  **贴图**：`textures/entity/` 已放入 `barkwhite.jpg`（488×511，释放时）与 `nobarkwhite.jpg`（488×511，常态/蓄力），需**转为带透明 PNG**并按状态切换（`bark` 仅 FIRING，`nobark` 其余）。
+5.  **击退**：光波略微增加击退（建议 **0.8**，`applySonicDamage` 内对命中目标施加）。
+
+### 已勘察现状（增量前）
+
+- 音频：`BigDogEntity` 用 `world.playSound(null, ...)` 一次性播放，`tickCharging` 122t 单次、`startFiring` 80t 单次，`cancelAttack` 与死亡路径均不持有 SoundInstance，死亡后已播音频无法截断；`isDead/isRemoved` 仅在 `tickCharging` 首行检查是否取消，未处理已播声音。
+- 特效：仅服务端 `Box`/`isInBeam` 判定，无任何 `RenderLayer`/`Particle`/`Beam` 绘制；`BigDogBillboardRenderer` 仅 `getEntityCutoutNoCull(big_dog.png)` 单张 64×64 billboard，不感知状态。
+- 属性：`createAttributes` 为 40 血 / 0.28 移速 / 32 跟随 / 0.2 抗击退 / 2 攻击，无护甲；`RANGE 30`、`HALF_WIDTH 1.0`、`DAMAGE 4`、`DAMAGE_INTERVAL 10`；`applySonicDamage` 仅 `damage()`，无击退。
+- 贴图：`textures/entity/` 下 `barkwhite.jpg`/`nobarkwhite.jpg` 为 488×511 RGB JPG 无 alpha，未被 `ModEntities`/`Renderer` 引用；`big_dog.png` 仍为占位；`ModEntities` 尺寸 `0.8×1.2`，billboard 半宽 0.6。
+
+### 推荐方案
+
+**1. 死亡截断（由“自然播完”改为“立即截断”）**
+
+- 现状 `world.playSound(null, ...)` 为一次性世界音，`cancelAttack` 与死亡路径均不持有句柄，死亡后已播音频无法截断，且服务端 `world.playSound` 会向所有客户端广播，若再叠加客户端 SoundInstance 会**双播**；且 `tick()` 仅检查 `world.isClient`，未检查 `!isAlive()/isRemoved()`，死亡后约 20t 的 `KILLED` 移除窗口仍会进入 `CHARGING/FIRING`。修正：**删除两处服务端 `world.playSound`**（`tickCharging` 与 `startFiring`），改为**客户端持有的 `EntityTrackingSoundInstance`**（`net.minecraft.client.sound.EntityTrackingSoundInstance` 可直接实例化，随实体定位与衰减，`tick()` 自动更新位置并在实体移除时自停；`MovingSoundInstance` 为抽象基类不直接使用），通过 `MinecraftClient.getInstance().getSoundManager().play()` 持有句柄，`DataTracker STATE` 驱动生命周期；服务端 `tick` 首行追加 `if (!isAlive()||isRemoved()) {cancelAttack(); return;}`，客户端每 tick 检查 `!entity.isAlive()||isRemoved()||state!=CHARGING/FIRING` 时立即 `soundManager.stop(instance)`。`trackedUpdateRate=2` 至多 2t 启动延迟可接受；`stopSounds(事件ID/类别)` 会误停多只狗，不采用。
+
+**2. 光波特效（黄色光柱 + 光环）**
+
+- 为实现可视化，`firingDir` 仅普通字段无法让客户端获知固定方向，需新增 **DataTracker 方向**（建议单 `INTEGER` 角度或两个 `FLOAT` 的 `firingDirX/Z` 同步）及 **FIRING_PROGRESS（0..100）**，供客户端计算推进。新增 `client/render/BigDogSonicBeamRenderer` 或在 `BigDogBillboardRenderer` 内当 `state==FIRING` 时叠加渲染：以 `firingDir` 为轴，用 `MatrixStack` 沿射线方向绘制半透明黄色光柱（`RenderLayer.getEntityTranslucent` 或 `getBeaconBeam` 变体，`0xFFFFE040` 附近，白色辅助纹理着色），并在光柱上每 4-5 格生成一个**平行于横截面的光环**（6 个环、16 段环带、半径≈`HALF_WIDTH 1.5`、间距约 5，按 `FIRING_PROGRESS` 沿 dir 推进并用 `tickDelta` 平滑，随进度淡出）。仅客户端 `isClient` 渲染，不影响服务端判定；长光柱需注意视锥边界。
+
+**3. 平衡**
+
+- `createAttributes` 中 `GENERIC_MAX_HEALTH 40→50`、`GENERIC_ARMOR 4`、`HALF_WIDTH 1.0→1.5`；`RANGE` 保持 30；`GENERIC_KNOCKBACK_RESISTANCE` 保持 **0.2**（0.35 为需求外改动，除非另确认）；`applySonicDamage` 中 `sonicBoom(this)` 已有 0.4 自动击退（`LivingEntity.damage` 内），此处额外 `takeKnockback(0.4, -dir)` 使总强度 0.8，方向取反，需 `velocityDirty`。
+
+**4. 贴图**
+
+- 将 `barkwhite.jpg`/`nobarkwhite.jpg` 转为 `bark.png`/`nobark.png`（Pillow 转 PNG，白色背景转为透明或保留白底视需求，488×511 需缩至 64/128 方幂或保持原尺寸但需配置 UV）；`BigDogBillboardRenderer.getTexture()` 改为按 `entity.getState()` 返回：`FIRING → bark.png`，其余 → `nobark.png`；删除占位 `big_dog.png` 或保留作 fallback。`ModEntities` 尺寸保持 `0.8×1.2`，billboard 半宽可随新贴图微调至 0.6-0.8。
+
+**5. 击退**
+
+- 与 3 同步，在 `applySonicDamage` 内对每个命中目标 `takeKnockback(0.4, -dir)`（0.4 + 已有 0.4 = 总强度 0.8，方向取反），与 10t 伤害节律一致；玩家额外 `velocityModified` 标记。
+
+**关键文件变更**
+
+- 修改：`src/main/java/com/mymod/bigfruit/entity/BigDogEntity.java:68-71` 属性、`36-37` `HALF_WIDTH`/`RANGE`、`32-39` 常量、`205-237` tick 死亡截断、`250-279` 击退
+- 新增/修改：`src/client/java/com/mymod/bigfruit/client/render/BigDogBillboardRenderer.java` 状态感知贴图、`src/client/java/com/mymod/bigfruit/client/render/BigDogSonicBeamRenderer.java`（或内联）与 `src/client/java/com/mymod/bigfruit/client/sound/BigDogEntitySound.java` 可停止音频（原名 `BigDogLoopSound` 易与“单次”混淆，已更名）
+- 转换：`src/main/resources/assets/big-fruit-mod/textures/entity/barkwhite.jpg`→`bark.png`、`nobarkwhite.jpg`→`nobark.png`（带透明），`src/main/resources/assets/big-fruit-mod/sounds.json` 为 `big_dog_call`（必要时 `big_dog_charge_loop`）显式加 `"attenuation_distance": 32`（默认 16 无法覆盖 30 格，需确保 30 格处可闻）
+
+**验证**
+
+- 死亡截断：蓄力/释放中击杀大狗，`charge_loop`/`call` 立即停止，不再播至结束；`./gradlew build` 无 SoundInstance 泄漏
+- 光波：`FIRING` 80t 内可见黄色光柱 + 4-6 光环随射线推进，平行于横截面，`RANGE 30` 内完整覆盖
+- 平衡：`/summon` 后 `Health 50`、受击减伤可见护甲生效、光波命中时目标被击退、`Box` 宽度 3 格内均命中
+- 贴图：`IDLE/CHARGING/COOLDOWN` 显示 `nobark`，`FIRING` 切换为 `bark`，JPG 已转为 PNG 且带透明
+- 声音可闻：`sounds.json` `attenuation_distance 32` 确保 30 格处能听到 `bark`/`charge`，与 `EntityTrackingSoundInstance` 共同决定可听距离
+- `fresh_fruit` 仍保留，`build` 通过
