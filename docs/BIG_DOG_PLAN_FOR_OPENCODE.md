@@ -1,0 +1,170 @@
+# 大狗叫 MOD 第一版实现计划
+
+## Context
+
+用户希望将当前 `big-fruit-mod` 项目逐步制作成 Fabric 1.20.1 的“大狗叫”恶搞 MOD。第一版新增一个中立生物：它使用二维表情包 billboard 形式显示，平时不会主动攻击；受到有效攻击后，会先蓄力并循环播放“大狗大狗大狗大狗”，随后播放“叫！”并释放持续的大范围直线音波。音波会攻击范围内除大狗自身以外的所有生物，包括玩家、召唤者和其他大狗，并且会持续破坏前方方块，破坏力按 TNT 级别处理。
+
+当前仓库已经是 Fabric 1.20.1、Yarn 1.20.1、Fabric API 0.92.11、Java 17 的模板，不需要迁移加载器。仓库中已有用户未提交的 `fresh_fruit` 物品改动；实现时必须保留并兼容这些改动，不能覆盖或回滚它们。当前没有实体、声音、渲染器或测试实现。
+
+本计划只覆盖讨论后确认的第一版可玩功能。正式表情包和正式“大狗叫”音频尚未提供；第一版可以使用简单的临时 PNG 和时长匹配的占位 OGG，正式素材替换前仍需再次讨论文件内容、尺寸和授权。
+
+## 用户原始要求汇总（供 opencode 参考，避免误解）
+
+> 本节每次更新计划时需与正文保持同步，确保 opencode 能看到完整的人为约束，而非仅技术方案。
+
+1.  **基础约束**：Minecraft 1.20.1 + Fabric；继续使用当前 `big-fruit-mod` 项目，不覆盖已有的 `fresh_fruit` 未提交改动；所有贴图/音频等素材需先与用户讨论后再提供或替换，第一版允许使用临时占位素材。
+2.  **生物形态**：新增一个类似狼的中立生物，模型替换为“大狗叫”表情包；最终确认为**二维 billboard**（始终面向观察者），后续仅替换纹理。
+3.  **核心玩法**：受击后反击的远程音波攻击，类似循声守卫：先蓄力（期间循环播放“大狗大狗大狗大狗”）、结束时播放“叫！”并释放**持续的、大范围的直线 AOE**（叫声结束攻击即停）；中立，不主动索敌。
+4.  **数值与范围（逐步确认）**：第一版采用测试默认值（蓄力 3s、释放 2s、射程 20→本次已提升至 30、宽度 2、每 10t 4 伤害、冷却 1s）；后续以正式音频时长为准同步（见本次迭代）。
+5.  **召唤方式**：物品召唤，且**两者都要**：标准刷怪蛋 + 自定义召唤物（`BigDogSummonItem`）；按“混合方式”——刷怪蛋用于测试、召唤物暂仅创造/`/give`，第一版不擅自定生存配方。
+6.  **目标筛选**：范围清场，但明确为**除自身外所有生物均受伤**，包括玩家、召唤者、其他大狗、队友、被动/敌对生物。
+7.  **方块破坏**：音波需持续破坏前方方块，破坏力 **TNT 同级（强度 4）**，且为**持续推进**（每段只处理一次，`FIRING_TICKS` 内逐步推进至射程），允许穿墙，本次破坏距离由 20 提升至 30。
+8.  **音频接入（本次）**：用户已将 `bigdog.MP3`（蓄力 6.11s）与 `bark_long.MP3`（释放 4.00s）放入 `src/main/resources/assets/big-fruit-mod/sounds/entity/big_dog/`；要求由我分配最终位置（已确认：转码后覆盖 `charge_loop.ogg`/`call.ogg`）、转换为 OGG Vorbis 单声道 22k、删除 MP3、并将蓄力/释放时长与音频同步（122t/80t）、蓄力音频按 opencode P0 结论改为**单次播放**（122t 恰好覆盖一次，不循环）。
+9.  **协作约定**：关乎 MOD 制作的所有细节需先讨论再工作；计划文档需另存一份供 opencode 审阅，本文件与 `docs/BIG_DOG_PLAN_FOR_OPENCODE.md` 保持一致。
+
+## 已确认的第一版规格
+
+- Minecraft/Loader：Fabric 1.20.1。
+- 实体显示名：`大狗叫`；推荐内部 ID：`big_dog`。
+- 生物性格：中立，仅在受到有效攻击后反击；没有主动索敌。
+- 攻击目标：音波范围内所有 `LivingEntity`，只排除大狗叫攻击实体自身；不排除召唤者、玩家、其他大狗或队友。
+- 召唤方式：同时提供原版风格刷怪蛋和自定义召唤物。按“混合方式”先让刷怪蛋用于测试，自定义召唤物通过创造模式或 `/give` 获取，第一版暂不擅自设计生存配方。
+- 显示方式：先实现始终面向观察者的二维 billboard；后续只替换纹理即可更新正式表情包。
+- 临时素材：允许生成简单占位 PNG 和时长匹配的占位 OGG，不使用未经确认的正式梗图或音频。
+- 攻击默认数值：蓄力 60 tick（3 秒）、释放 40 tick（2 秒）、射程 30 格（已按本次要求由 20 提升至 30）、宽度约 2 格、每 10 tick 对范围内目标造成 4 点伤害、结束后冷却 20 tick（1 秒）。
+- 音频节奏：蓄力循环音约 1 秒，释放音约 2 秒；释放状态和生物伤害在固定 tick 到达时结束，使“叫！”音频结束与攻击停止同步。
+- 方块效果：释放期间持续向前推进破坏。路径按格分段，每一段只处理一次，使用 TNT 级别（爆炸强度 4 的等效破坏）处理，避免每 tick 对同一地点重复爆炸；实体音波伤害独立按 10 tick 间隔计算。
+
+## 推荐实现步骤
+
+### 1. 整理现有注册并添加公共注册模块
+
+保留现有 `ModItems.FRESH_FRUIT` 和其资源，不重写用户正在进行的水果物品功能。将 `ModItems` 整理为统一的注册入口，在其中加入自定义召唤物和 `SpawnEggItem`，并确保 `BigFruitMod.onInitialize()` 按顺序初始化实体、属性、声音和物品。清理仅在确认不影响现有水果物品的情况下进行，例如未使用的 import 或重复注册 helper。
+
+新增：
+
+- `registry/ModEntities.java`：注册 `BIG_DOG` 的 `EntityType`，设置碰撞箱、追踪距离和更新频率。
+- `registry/ModSounds.java`：注册蓄力循环音和释放音两个 `SoundEvent`。
+- `ModItems` 中的 `BIG_DOG_SPAWN_EGG` 与 `BIG_DOG_SUMMON`：分别使用标准刷怪蛋逻辑和自定义右键召唤逻辑。
+- 适当加入创造模式物品栏入口，确保可以通过创造菜单和 `/give` 测试。
+
+当前 `fabric.mod.json`、`build.gradle` 的 main/client split 和 Fabric datagen 入口已经满足需求，不为实体功能引入 Mixin 或自定义网络包。
+
+### 2. 实现大狗叫实体与服务端状态机
+
+新增 `entity/BigDogEntity.java`，建议继承 `PathAwareEntity`，不要继承 `WolfEntity` 或 `TameableEntity`，以免自动带入驯服、主人、繁殖和狼的敌对逻辑。
+
+实现以下公共逻辑：
+
+- 使用 `MobEntity.createMobAttributes()` 注册基础生命值、速度和碰撞属性。
+- 只添加游荡、观察和基础移动目标，不添加主动 `ActiveTargetGoal`。
+- 在 `damage(...)` 成功且伤害来源能解析出 `LivingEntity` 攻击者时触发反击；环境伤害没有攻击者时不强行选择目标。
+- 使用服务端权威状态机：`IDLE -> CHARGING -> FIRING -> COOLDOWN -> IDLE`。
+- `CHARGING` 期间停止导航并面向当前攻击者；进入 `FIRING` 时捕获水平释放方向，2 秒内固定沿该方向攻击。
+- 目标失效、实体死亡或攻击被明确打断时清理状态和声音；正在蓄力/释放时忽略新的触发，避免多个伤害事件重置计时器。
+- 用 1.20.1 的旧版 `DataTracker.registerData` / `startTracking` 同步客户端需要的状态、蓄力进度和释放方向；内部计时器和命中冷却只由服务端维护。
+- 释放结束后进入 20 tick 冷却，冷却期间不能再次开始蓄力。
+
+### 3. 实现音波伤害和持续方块破坏
+
+在 `BigDogEntity` 中集中处理攻击状态，避免 AI Goal 与实体 tick 同时修改计时器。
+
+- 进入 `CHARGING` 时由服务端播放蓄力音，并按约 20 tick 的间隔重播占位循环音（占位规格，最终以增量计划的 122t 单次播放为准）；取消蓄力时不再重播，且已播放的 6.11s 音频按 opencode 建议 2 方案 A 自然播完，不主动停止。
+- 蓄力完成时播放一次“叫！”音，切换到 `FIRING`。
+- `FIRING` 每 10 tick 查询固定方向的 30 格宽直线区域，对区域内所有存活生物造成 4 点伤害；排除自身，其他所有生物均可受伤。由 10t 全局间隔保证每个目标的 0.5s 受击节律，无需单独维护每目标命中 tick（已按 opencode P2 对齐实现，移除“为每个目标维护命中 tick”的误述）；攻击只在服务端执行，避免客户端/服务端双重扣血。
+- 优先使用 Yarn 1.20.1 可用的 sonic boom DamageSource；若当前 mappings 没有对应方法，使用普通的实体攻击 DamageSource，不通过 Mixin 绕过 API。
+- 将释放路径按 1 格左右的离散段推进，在 40 tick 内持续处理前方尚未处理的段（音频同步后为 80t 内推进 30 段）。每段只进行一次 TNT 等效强度 4（对应抗爆阈值 8.0，`blastResistance > 8.0f` 跳过）的方块破坏（`world.breakBlock(pos, false, this)`，已按用户确认**不掉落**，区别于原版 TNT 的掉落规则），并记录已处理段，防止重复爆炸导致不受控的指数破坏。
+- 方块破坏实现必须在服务端执行，并避免让同一段的爆炸额外重复计算音波伤害；若使用原版爆炸 API，需要明确其实体伤害和掉落行为，必要时采用仅处理方块的等效破坏逻辑。
+- 第一版按已确认规则允许音波穿墙，并允许破坏前方方块；不增加保护召唤者、队友或同类的例外。
+- `FIRING` 计时结束后立即停止伤害、停止新的方块破坏和 beam 状态，再进入冷却。
+
+### 4. 实现客户端 billboard 渲染与占位资源
+
+在 `src/client/java` 中新增自定义 `BigDogBillboardRenderer`，用一张透明 PNG 绘制始终朝向摄像机的四边形，而不是使用新版 RenderState API。通过 `EntityRendererRegistry.register` 注册，并使用实体纹理位置返回占位图。实体状态可以先只同步声音和后续粒子所需的数据，第一版不强制加入复杂 beam 渲染。
+
+新增或保留资源：
+
+- `assets/big-fruit-mod/textures/entity/big_dog.png`：简单临时二维占位贴图。
+- `assets/big-fruit-mod/sounds.json`：声明 `big_dog_charge_loop` 和 `big_dog_call`。
+- `assets/big-fruit-mod/sounds/entity/big_dog/charge_loop.ogg`：约 1 秒占位音。
+- `assets/big-fruit-mod/sounds/entity/big_dog/call.ogg`：约 2 秒占位音。
+- `assets/big-fruit-mod/lang/zh_cn.json`、`en_us.json`：加入实体、刷怪蛋和召唤物名称，同时保留现有 `fresh_fruit` 文本。
+- `assets/big-fruit-mod/models/item/big_dog_spawn_egg.json` 和自定义召唤物模型；刷怪蛋使用原版 spawn egg 模型父项。
+
+占位资源仅用于本地测试。正式贴图和音频由用户提供或确认后，单独讨论分辨率、透明区域、OGG Vorbis 编码、音量、循环间隔、授权和再分发范围，再替换资源文件。
+
+### 5. 实现自定义召唤物
+
+自定义召唤物实现为普通 `Item` 的右键行为：在服务端根据玩家位置和朝向生成 `BIG_DOG`，设置初始旋转和生成位置，并在成功生成后消耗物品（创造模式不消耗）。标准刷怪蛋继续用于原版风格的快速测试。
+
+第一版不添加自然生成、掉落表、繁殖、驯服、主人保护或生存配方，避免在核心音波机制稳定前扩大范围。后续如果要加入配方，会单独和用户讨论材料与获取途径。
+
+## 验证方案
+
+1. 运行 `./gradlew build`，确认 Java 17 编译、资源处理和 Fabric 模组打包成功。
+2. 运行客户端，使用创造菜单或以下命令测试两种物品：
+   - `/give @s big-fruit-mod:big_dog_spawn_egg`
+   - `/give @s big-fruit-mod:big_dog_summon`
+3. 使用刷怪蛋和召唤物分别生成实体，确认二维贴图始终面向观察者，实体碰撞箱和视觉占位大小可接受。
+4. 用近战、投射物和其他生物攻击大狗，确认只有有效攻击者触发蓄力；检查 3 秒循环音、2 秒“叫！”音（占位规格，最终以增量计划的 6.11s 单次 / 4s 为准）、30 格直线、每 0.5 秒 4 点伤害和 1 秒冷却。
+5. 将玩家、被动生物、敌对生物、其他大狗和召唤者放在音波路径中，确认除攻击实体自身外全部会受伤。
+6. 在路径上放置方块，确认破坏从释放开始持续推进、每段只处理一次、破坏力接近 TNT 且覆盖 30 格，并确认不会因每 tick 重复爆炸造成异常扩大。
+7. 测试目标死亡、实体卸载/重载、多只大狗同时攻击、客户端/服务端分离和专用服务器启动，确保状态与伤害只由服务端推进。
+8. 检查 `git diff`，确认现有 `fresh_fruit` Java、语言、模型和贴图改动仍然存在且未被覆盖。正式素材替换前停止并先与用户讨论。
+
+### Critical Files for Implementation
+
+- `D:\Project\java_project\MCMOD\ex1\src\main\java\com\mymod\bigfruit\BigFruitMod.java`
+- `D:\Project\java_project\MCMOD\ex1\src\main\java\com\mymod\bigfruit\item\ModItems.java`
+- `D:\Project\java_project\MCMOD\ex1\src\main\java\com\mymod\bigfruit\registry\ModEntities.java`
+- `D:\Project\java_project\MCMOD\ex1\src\main\java\com\mymod\bigfruit\entity\BigDogEntity.java`
+- `D:\Project\java_project\MCMOD\ex1\src\client\java\com\mymod\bigfruit\client\BigFruitModClient.java`
+- `D:\Project\java_project\MCMOD\ex1\src\client\java\com\mymod\bigfruit\client\render\BigDogBillboardRenderer.java`
+- `D:\Project\java_project\MCMOD\ex1\src\main\resources\assets\big-fruit-mod\sounds.json`
+- `D:\Project\java_project\MCMOD\ex1\src\main\resources\assets\big-fruit-mod\textures\entity\big_dog.png`
+
+---
+
+## 本次迭代：接入正式音频并同步时长（增量计划）
+
+### Context（增量）
+
+用户已在 `src/main/resources/assets/big-fruit-mod/sounds/entity/big_dog/` 下放入两段正式音频：`bigdog.MP3`（蓄力、约 6.11s、立体声 44.1kHz）与 `bark_long.MP3`（释放、约 4.00s）。当前已实现版本使用占位 OGG：`charge_loop.ogg`（1.00s）与 `call.ogg`（2.00s），并通过 `ModSounds.BIG_DOG_CHARGE_LOOP` / `BIG_DOG_CALL` 与 `sounds.json` 的 `big_dog_charge_loop` / `big_dog_call` 事件绑定；`BigDogEntity` 中以固定常量驱动：`CHARGING_TICKS=60`、`FIRING_TICKS=40`、`CHARGE_LOOP_INTERVAL=20`，且蓄力期间每 20t 重播循环音。用户本次要求：由我决定音频在资源树中的最终位置，并将蓄力/释放时长与音频时长同步。**已确认：覆盖占位文件、转换后删除 MP3、蓄力音频按 opencode P0 改为单次播放。**
+
+关键约束：Minecraft 1.20.1 仅接受 OGG Vorbis（单声道更稳定），MP3 需转换为 OGG；`fresh_fruit` 相关改动仍需保留；不擅自决定最终梗图替换。
+
+### 已勘察到的现状
+
+- 新音频位置：`src/main/resources/assets/big-fruit-mod/sounds/entity/big_dog/bigdog.MP3`（6.11s）与 `bark_long.MP3`（4.00s），均为未跟踪文件，与占位 `charge_loop.ogg` / `call.ogg` 并存
+- 当前注册：`ModSounds.java:12-13` 定义两个 `SoundEvent`（`big_dog_charge_loop` / `big_dog_call`），`sounds.json:2-12` 映射到 `entity/big_dog/charge_loop` 与 `entity/big_dog/call`
+- 当前状态机：`BigDogEntity.java:32-39` 固定 60t/40t/20t，`RANGE` 仍为 20.0（本次需一并提升至 30），`tickCharging()` 每 20t 调用 `world.playSound(... BIG_DOG_CHARGE_LOOP)`（本次将改为单次播放，见下），`startFiring()` 播放 `BIG_DOG_CALL` 一次；伤害与方块破坏均以 `FIRING_TICKS` 为分母做进度推进
+- 构建：`build.gradle` 的 `splitEnvironmentSourceSets` 与 `fabric.mod.json:16-25` 已满足，差异仅为资源与常量
+
+### 推荐方案（增量，不推翻第一版）
+
+**1. 资源分配与格式转换**
+
+- 保留 `ModSounds` 的两个事件 ID 不变（避免改动注册与存档兼容性），仅替换底层 OGG 文件内容：`bigdog.MP3` 转码为 `charge_loop.ogg`，`bark_long.MP3` 转码为 `call.ogg`，覆盖当前占位文件
+- 转码规格：`ffmpeg -i input.MP3 -c:a libvorbis -q:a 4 -ac 1 -ar 22050 output.ogg`（与占位一致的单声道 22k Vorbis，便于距离衰减），转换后删除两个 MP3（已确认），避免将 MP3 打入 jar 造成无效资源与体积增加
+- `sounds.json` 保持 `entity/big_dog/charge_loop` 与 `entity/big_dog/call` 的映射不变，仅在需要时调整 `subtitle` 或增加 `attenuation_distance` 等可选字段，不新增事件（已确认覆盖方案）
+
+**2. 时长同步**
+
+- 以实测时长换算 tick：`bigdog 6.11s ≈ 122t`（122.2），`bark 4.00s ≈ 80t`；为与音频结束对齐，更新 `BigDogEntity.java:32-39` 为 `CHARGING_TICKS = 122`、`FIRING_TICKS = 80`（取整，允许 ±1t 误差；若需精确到采样点可在注释中记录 6.11s/4.00s），并将 `RANGE` 由 20 提升至 30（本次新增要求，`+10`）
+- 蓄力循环逻辑（已按 opencode P0 与用户确认改为单次播放）：`CHARGING_TICKS` 122t 恰好等于音频 6.11s，进入 `CHARGING` 时播一次 `BIG_DOG_CHARGE_LOOP` 即完整覆盖蓄力，`CHARGE_LOOP_INTERVAL` 设为 ≥122t（实际不再重播，避免与未播完的音频重叠）；`FIRING` 仍为进入时播一次 `BARK`，伤害/破坏的 `DAMAGE_INTERVAL` 与分段推进保持不变但会随新的 `FIRING_TICKS`（80t）与 `RANGE`（30）自动拉伸至 30 段
+- 保留 `COOLDOWN_TICKS = 20` 与 `HALF_WIDTH/DAMAGE` 不变；`writeCustomDataToNbt` / `readCustomDataFromNbt` 仅持久化 `chargingTicksRemaining/firingTicksRemaining/cooldownTicksRemaining/firingDir` 与状态，`chargeLoopCooldown/damageIntervalCooldown/processedSegments/brokenThisAttack` 不持久化，`readCustomDataFromNbt` 对 `CHARGING/FIRING` 做 `cancelAttack()` 重置，中途存档会导致蓄力/释放重置，属可接受行为（opencode P3）；另按 opencode 建议 2 方案 A，中途取消蓄力时已播放的 6.11s 音频不主动停止、自然播完（`world.playSound` 一次性播放，无 SoundInstance 句柄），属可接受边界
+
+**3. 关键文件变更（增量）**
+
+- 覆盖：`src/main/resources/assets/big-fruit-mod/sounds/entity/big_dog/charge_loop.ogg`（由 `bigdog.MP3` 转码）、`src/main/resources/assets/big-fruit-mod/sounds/entity/big_dog/call.ogg`（由 `bark_long.MP3` 转码）
+- 删除：`src/main/resources/assets/big-fruit-mod/sounds/entity/big_dog/bigdog.MP3`、`bark_long.MP3`（已确认删除）
+- 修改：`src/main/java/com/mymod/bigfruit/entity/BigDogEntity.java:32-39` 常量（`CHARGING_TICKS` 122 / `FIRING_TICKS` 80 / `RANGE` 30 / `CHARGE_LOOP_INTERVAL` ≥122 单次）与 `tickCharging()` 的循环播放分支（改为单次，P0）及 `tryBreakBlock()` 的 `drop=false`（P1）；按需微调 `src/main/resources/assets/big-fruit-mod/sounds.json` 的注释/字幕
+
+**4. 验证**
+
+- `ffprobe` 核对转换后 OGG 时长为 6.11s±0.05 与 4.00s±0.05，`./gradlew build` 确认无 `MP3` 未转换残留且 jar 内 `assets/.../charge_loop.ogg` 与 `call.ogg` 为新文件
+- 游戏内：`/give` 两种召唤物、` /summon`、受击后观测蓄力约 6.1s 单次完整播放（已按 P0 改为不循环）、`bark` 约 4s 内释放直线 AOE 与按段破坏完整覆盖 30 格（已由 20 提升至 30，`drop=false` 不掉落，P1），结束即停；检查 `git diff` 中 `fresh_fruit` 仍保留
+
+### 待确认（需用户拍板后再替换正式梗图）
+
+- 是否需要微调音量/衰减距离，或保持 `1.2f/2.0f` 的现有 `playSound` 参数

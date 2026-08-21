@@ -1,0 +1,14 @@
+{
+  "big_dog_charge_loop": {
+    "sounds": [
+      "big-fruit-mod:entity/big_dog/charge_loop"
+    ],
+    "subtitle": "big-fruit-mod.subtitle.big_dog_charge"
+  },
+  "big_dog_call": {
+    "sounds": [
+      "big-fruit-mod:entity/big_dog/call"
+    ],
+    "subtitle": "big-fruit-mod.subtitle.big_dog_call"
+  }
+}
