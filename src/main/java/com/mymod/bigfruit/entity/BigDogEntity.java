@@ -33,14 +33,16 @@ public class BigDogEntity extends PathAwareEntity {
     public static final int FIRING_TICKS = 80; // 4.00s bark_long.MP3
     public static final int COOLDOWN_TICKS = 20;
     public static final int CHARGE_LOOP_INTERVAL = 122; // >= CHARGING_TICKS, single play (opencode P0)
-    public static final double RANGE = 30.0; // +10 per user request
-    public static final double HALF_WIDTH = 1.5;
-    public static final float DAMAGE = 4.0f;
+    public static final double RANGE = 50.0;
+    public static final double HALF_WIDTH = 3.0;
+    public static final float DAMAGE = 6.0f;
     public static final int DAMAGE_INTERVAL = 10;
+    public static final int BLOCK_BREAK_DURATION_TICKS = 50; // 50格在50t内跑完（1.0段/tick，RANGE 50）
 
     private static final TrackedData<Integer> STATE = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.INTEGER);
     private static final TrackedData<Integer> CHARGE_PROGRESS = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.INTEGER);
     private static final TrackedData<Float> FIRING_DIR_X = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.FLOAT);
+    private static final TrackedData<Float> FIRING_DIR_Y = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.FLOAT);
     private static final TrackedData<Float> FIRING_DIR_Z = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.FLOAT);
     private static final TrackedData<Integer> FIRING_PROGRESS = DataTracker.registerData(BigDogEntity.class, TrackedDataHandlerRegistry.INTEGER);
 
@@ -58,6 +60,7 @@ public class BigDogEntity extends PathAwareEntity {
     private int damageIntervalCooldown;
     private LivingEntity revengeTarget;
     private double firingDirX;
+    private double firingDirY;
     private double firingDirZ;
     private int processedSegments;
     private final Set<BlockPos> brokenThisAttack = new HashSet<>();
@@ -68,11 +71,11 @@ public class BigDogEntity extends PathAwareEntity {
 
     public static DefaultAttributeContainer.Builder createAttributes() {
         return PathAwareEntity.createMobAttributes()
-                .add(EntityAttributes.GENERIC_MAX_HEALTH, 50.0)
+                .add(EntityAttributes.GENERIC_MAX_HEALTH, 80.0)
                 .add(EntityAttributes.GENERIC_MOVEMENT_SPEED, 0.28)
-                .add(EntityAttributes.GENERIC_FOLLOW_RANGE, 32.0)
+                .add(EntityAttributes.GENERIC_FOLLOW_RANGE, 64.0)
                 .add(EntityAttributes.GENERIC_KNOCKBACK_RESISTANCE, 0.2)
-                .add(EntityAttributes.GENERIC_ARMOR, 4.0)
+                .add(EntityAttributes.GENERIC_ARMOR, 8.0)
                 .add(EntityAttributes.GENERIC_ATTACK_DAMAGE, 2.0);
     }
 
@@ -90,6 +93,7 @@ public class BigDogEntity extends PathAwareEntity {
         this.dataTracker.startTracking(STATE, State.IDLE.ordinal());
         this.dataTracker.startTracking(CHARGE_PROGRESS, 0);
         this.dataTracker.startTracking(FIRING_DIR_X, 0.0f);
+        this.dataTracker.startTracking(FIRING_DIR_Y, 0.0f);
         this.dataTracker.startTracking(FIRING_DIR_Z, 1.0f);
         this.dataTracker.startTracking(FIRING_PROGRESS, 0);
     }
@@ -110,6 +114,10 @@ public class BigDogEntity extends PathAwareEntity {
         return this.dataTracker.get(FIRING_DIR_X);
     }
 
+    public float getFiringDirYTracked() {
+        return this.dataTracker.get(FIRING_DIR_Y);
+    }
+
     public float getFiringDirZTracked() {
         return this.dataTracker.get(FIRING_DIR_Z);
     }
@@ -125,19 +133,19 @@ public class BigDogEntity extends PathAwareEntity {
             this.cancelAttack();
         }
         if (!this.getWorld().isClient && result && amount > 0) {
-            if (this.getState() != State.IDLE) {
-                return result;
-            }
-            if (this.cooldownTicksRemaining > 0) {
-                return result;
-            }
+            LivingEntity attackerLiving = null;
             var attacker = source.getAttacker();
             if (attacker instanceof LivingEntity living && living != this && living.isAlive()) {
-                this.revengeTarget = living;
-                this.startCharging();
+                attackerLiving = living;
             } else if (source.getSource() instanceof LivingEntity living && living != this && living.isAlive()) {
-                this.revengeTarget = living;
-                this.startCharging();
+                attackerLiving = living;
+            }
+            if (attackerLiving != null) {
+                this.revengeTarget = attackerLiving;
+                this.setTarget(attackerLiving);
+                if (this.getState() == State.IDLE && this.cooldownTicksRemaining <= 0) {
+                    this.startCharging();
+                }
             }
         }
         return result;
@@ -165,23 +173,22 @@ public class BigDogEntity extends PathAwareEntity {
         this.processedSegments = 0;
         this.brokenThisAttack.clear();
 
+        Vec3d origin = this.getEyePos();
         Vec3d dir;
         if (this.revengeTarget != null && this.revengeTarget.isAlive()) {
-            dir = new Vec3d(
-                    this.revengeTarget.getX() - this.getX(),
-                    0,
-                    this.revengeTarget.getZ() - this.getZ()
-            );
+            dir = this.revengeTarget.getEyePos().subtract(origin);
         } else {
-            dir = this.getRotationVector().multiply(1, 0, 1);
+            dir = this.getRotationVector();
         }
         if (dir.lengthSquared() < 1.0e-6) {
             dir = new Vec3d(0, 0, 1);
         }
         dir = dir.normalize();
         this.firingDirX = dir.x;
+        this.firingDirY = dir.y;
         this.firingDirZ = dir.z;
         this.dataTracker.set(FIRING_DIR_X, (float) dir.x);
+        this.dataTracker.set(FIRING_DIR_Y, (float) dir.y);
         this.dataTracker.set(FIRING_DIR_Z, (float) dir.z);
         this.dataTracker.set(FIRING_PROGRESS, 0);
         // Sound now handled client-side via EntityTrackingSoundInstance (no server world.playSound to avoid double play)
@@ -190,7 +197,6 @@ public class BigDogEntity extends PathAwareEntity {
     private void enterCooldown() {
         this.setState(State.COOLDOWN);
         this.cooldownTicksRemaining = COOLDOWN_TICKS;
-        this.revengeTarget = null;
         this.brokenThisAttack.clear();
     }
 
@@ -200,18 +206,29 @@ public class BigDogEntity extends PathAwareEntity {
         if (this.getWorld().isClient) {
             return;
         }
-        // Death truncation: stop attack immediately when dead/removed (opencode fix)
         if (!this.isAlive() || this.isRemoved()) {
             if (this.getState() == State.CHARGING || this.getState() == State.FIRING) {
                 this.cancelAttack();
             }
             return;
         }
+        if (this.revengeTarget != null && (!this.revengeTarget.isAlive() || this.revengeTarget.isRemoved())) {
+            this.revengeTarget = null;
+            this.setTarget(null);
+        }
 
         switch (this.getState()) {
             case IDLE -> {
                 if (this.cooldownTicksRemaining > 0) {
                     this.cooldownTicksRemaining--;
+                }
+                if (this.cooldownTicksRemaining <= 0 && this.revengeTarget != null && this.revengeTarget.isAlive() && !this.revengeTarget.isRemoved()) {
+                    this.getLookControl().lookAt(this.revengeTarget, 30.0f, 30.0f);
+                    double distSq = this.squaredDistanceTo(this.revengeTarget);
+                    if (distSq > 4.0) {
+                        this.getNavigation().startMovingTo(this.revengeTarget, 1.0);
+                    }
+                    this.startCharging();
                 }
             }
             case CHARGING -> tickCharging();
@@ -276,20 +293,21 @@ public class BigDogEntity extends PathAwareEntity {
         this.damageIntervalCooldown = 0;
         this.brokenThisAttack.clear();
         this.dataTracker.set(CHARGE_PROGRESS, 0);
+        this.dataTracker.set(FIRING_PROGRESS, 0);
         this.setState(State.IDLE);
         this.revengeTarget = null;
     }
 
     private void applySonicDamage() {
-        Vec3d origin = this.getPos().add(0, this.getEyeY() - this.getY() - 0.3, 0);
-        Vec3d dir = new Vec3d(this.firingDirX, 0, this.firingDirZ).normalize();
+        Vec3d origin = this.getEyePos();
+        Vec3d dir = new Vec3d(this.firingDirX, this.firingDirY, this.firingDirZ).normalize();
         Vec3d end = origin.add(dir.multiply(RANGE));
 
         double minX = Math.min(origin.x, end.x) - HALF_WIDTH;
-        double minY = origin.y - HALF_WIDTH;
+        double minY = Math.min(origin.y, end.y) - HALF_WIDTH;
         double minZ = Math.min(origin.z, end.z) - HALF_WIDTH;
         double maxX = Math.max(origin.x, end.x) + HALF_WIDTH;
-        double maxY = origin.y + HALF_WIDTH;
+        double maxY = Math.max(origin.y, end.y) + HALF_WIDTH;
         double maxZ = Math.max(origin.z, end.z) + HALF_WIDTH;
 
         Box beamBox = new Box(minX, minY, minZ, maxX, maxY, maxZ);
@@ -300,15 +318,10 @@ public class BigDogEntity extends PathAwareEntity {
             if (!target.isAlive()) continue;
             if (!isInBeam(target, origin, dir)) continue;
 
-            DamageSource source;
-            try {
-                source = this.getDamageSources().sonicBoom(this);
-            } catch (Throwable t) {
-                source = this.getDamageSources().mobAttack(this);
-            }
+            DamageSource source = this.getDamageSources().mobAttack(this);
             if (target.damage(source, DAMAGE)) {
-                // sonicBoom/mobbAttack 已有 0.4 自动击退（LivingEntity.damage 内 takeKnockback），此处额外 0.4 使总强度 0.8；takeKnockback 会取反向量，需传 -dir
-                target.takeKnockback(0.4, -dir.x, -dir.z);
+                // mobAttack 无内置击退（区别于 sonicBoom），此处直接 0.8 以保持总击退 0.8；takeKnockback 会取反向量，需传 -dir
+                target.takeKnockback(0.8, -dir.x, -dir.z);
                 if (target instanceof PlayerEntity) {
                     target.velocityModified = true;
                 }
@@ -335,28 +348,35 @@ public class BigDogEntity extends PathAwareEntity {
 
     private void processBlockDestruction() {
         int totalSegments = (int) RANGE;
-        double progress = 1.0 - (double) this.firingTicksRemaining / FIRING_TICKS;
-        int targetSegments = (int) Math.ceil(progress * totalSegments);
+        int elapsed = FIRING_TICKS - this.firingTicksRemaining;
+        double destructionProgress = MathHelper.clamp((double) elapsed / BLOCK_BREAK_DURATION_TICKS, 0.0, 1.0);
+        int targetSegments = (int) Math.ceil(destructionProgress * totalSegments);
         targetSegments = MathHelper.clamp(targetSegments, 0, totalSegments);
 
-        Vec3d origin = this.getPos().add(0, 0.6, 0);
-        Vec3d dir = new Vec3d(this.firingDirX, 0, this.firingDirZ).normalize();
+        Vec3d origin = this.getEyePos();
+        Vec3d dir = new Vec3d(this.firingDirX, this.firingDirY, this.firingDirZ).normalize();
+        double halfWidthSq = HALF_WIDTH * HALF_WIDTH;
+        int r = (int) Math.floor(HALF_WIDTH);
 
         while (this.processedSegments < targetSegments) {
             double dist = this.processedSegments + 0.5;
-            Vec3d pos = origin.add(dir.multiply(dist));
-            BlockPos center = BlockPos.ofFloored(pos);
+            Vec3d center = origin.add(dir.multiply(dist));
 
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    if (Math.abs(dx) + Math.abs(dy) > 1) continue;
-                    BlockPos p = center.add(dx, dy, 0);
-                    if (Math.abs(this.firingDirX) > Math.abs(this.firingDirZ)) {
-                        p = center.add(0, dy, dx);
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dy = -r; dy <= r; dy++) {
+                    for (int dz = -r; dz <= r; dz++) {
+                        double axial = dx * dir.x + dy * dir.y + dz * dir.z;
+                        if (Math.abs(axial) > 0.5) continue;
+                        double dxd = dx;
+                        double dyd = dy;
+                        double dzd = dz;
+                        double perpSq = dxd * dxd + dyd * dyd + dzd * dzd - axial * axial;
+                        if (perpSq > halfWidthSq + 1.0e-6) continue;
+                        BlockPos p = BlockPos.ofFloored(center.x + dx, center.y + dy, center.z + dz);
+                        if (this.brokenThisAttack.contains(p)) continue;
+                        this.brokenThisAttack.add(p);
+                        tryBreakBlock(p);
                     }
-                    if (this.brokenThisAttack.contains(p)) continue;
-                    this.brokenThisAttack.add(p);
-                    tryBreakBlock(p);
                 }
             }
             this.processedSegments++;
@@ -382,6 +402,7 @@ public class BigDogEntity extends PathAwareEntity {
         nbt.putInt("FiringTicks", this.firingTicksRemaining);
         nbt.putInt("CooldownTicks", this.cooldownTicksRemaining);
         nbt.putDouble("FiringDirX", this.firingDirX);
+        nbt.putDouble("FiringDirY", this.firingDirY);
         nbt.putDouble("FiringDirZ", this.firingDirZ);
     }
 
@@ -392,6 +413,7 @@ public class BigDogEntity extends PathAwareEntity {
         if (nbt.contains("FiringTicks")) this.firingTicksRemaining = nbt.getInt("FiringTicks");
         if (nbt.contains("CooldownTicks")) this.cooldownTicksRemaining = nbt.getInt("CooldownTicks");
         if (nbt.contains("FiringDirX")) this.firingDirX = nbt.getDouble("FiringDirX");
+        if (nbt.contains("FiringDirY")) this.firingDirY = nbt.getDouble("FiringDirY");
         if (nbt.contains("FiringDirZ")) this.firingDirZ = nbt.getDouble("FiringDirZ");
         if (nbt.contains("BigDogState")) {
             int ord = nbt.getInt("BigDogState");
@@ -407,6 +429,10 @@ public class BigDogEntity extends PathAwareEntity {
 
     public double getFiringDirX() {
         return firingDirX;
+    }
+
+    public double getFiringDirY() {
+        return firingDirY;
     }
 
     public double getFiringDirZ() {

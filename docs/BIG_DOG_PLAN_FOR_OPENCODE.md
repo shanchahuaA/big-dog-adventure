@@ -224,3 +224,185 @@
 - 贴图：`IDLE/CHARGING/COOLDOWN` 显示 `nobark`，`FIRING` 切换为 `bark`，JPG 已转为 PNG 且带透明
 - 声音可闻：`sounds.json` `attenuation_distance 32` 确保 30 格处能听到 `bark`/`charge`，与 `EntityTrackingSoundInstance` 共同决定可听距离
 - `fresh_fruit` 仍保留，`build` 通过
+
+---
+
+## 第三次迭代：全向光波 + 数值加强（2026-08-24）
+
+### Context
+
+大狗叫第二迭代已闭环（死亡截断/黄色光柱+光环/50血4甲/1.5半宽/0.8击退/bark/nobark 透明切换，build通过，3轮opencode+并发复核）。当前光波强制水平（`startFiring` 中 `dir.y=0`、`FIRING_DIR_X/Z` 仅二维、`SonicBeamRenderer` 仅yaw、`processBlockDestruction` 水平分支），射程30、半宽1.5、伤害4。用户提出第三迭代：在保留第二迭代所有成果（`fresh_fruit` 仍保留、音频122t/80t、死亡截断、双召唤物）的前提下，让光波可朝任意方向并同步加强数值。
+
+### 用户原始要求汇总（本次新增，供 opencode 参考）
+
+1. **全向发射**：光波现在只能朝正面垂直方向（实际为水平）发射，需改为可朝任意方向（完全3D、无俯仰限制），能瞄向天上/地下的攻击者。（已确认：采用"狗 eyePos → 目标 eyePos"的3D向量）
+2. **数值加强**：生命 50→**80**、护甲 4→**8**、光波横截面半径+1格（半宽 1.5→**2.5**，直径5）、破坏范围随光波同步扩大（与伤害半径一致，约5×5实心圆柱）、伤害 4→**6**。距离、时长、击退、冷却等其余保持不变。（已确认三问）
+
+### 已勘察现状（增量前）
+
+- `BigDogEntity.java:31-44`：`RANGE 30.0`、`HALF_WIDTH 1.5`、`DAMAGE 4.0f`、`CHARGING 122t/FIRING 80t/COOLDOWN 20t`；属性 `MAX_HEALTH 50/ARMOR 4/KB_RESIST 0.2`；DataTracker 仅 `FIRING_DIR_X/Z`(FLOAT) + `FIRING_PROGRESS` + `STATE/CHARGE_PROGRESS`，无Y；`firingDirX/Z` 为普通double字段 + NBT `FiringDirX/Z`
+- `startFiring:168-186`：`dir = (targetX - selfX, 0, targetZ - selfZ)` 强制 y=0，fallback `getRotationVector().multiply(1,0,1)`；`applySonicDamage:284-286` `origin=pos+(0,eyeY-Y-0.3,0)` + `dir=(firingDirX,0,firingDirZ)`；`isInBeam` 已是3D投影但受限于水平dir；`processBlockDestruction:342-356` 水平分支 `if(|dirX|>|dirZ|) p=center.add(0,dy,dx)` 且每段仅十字3格
+- `BigDogSonicBeamRenderer.java:20-49`：仅取 X/Z、归一化后 `yaw=atan2(Z,X)-90`、绕Y旋转，`radius=1.5f`、`beamLen=30.0f` 恒定、`hw/hh=0.32`、`rings=6` 间距5；环面位于 XY 平面、沿Z推进，不支持俯仰
+- `createAttributes:69-76`、`ModEntities` 0.8×1.2、`sounds.json` attenuation 32 已满足30格可闻
+
+### 推荐方案（增量，不推翻前两版）
+
+**1. 服务端：DataTracker 与方向改为3D**
+
+- 新增 `TrackedData<Float> FIRING_DIR_Y`，声明/注册在现有 tracked 字段末尾（避免改变旧 `FIRING_DIR_X/Z/FIRING_PROGRESS` 的 DataTracker ID 顺序）；`initDataTracker` 默认 `0f`；新增 `getFiringDirYTracked()`、普通字段 `firingDirY`、`getFiringDirY()`；NBT 新增 `FiringDirY` 读写，旧存档缺失默认0
+- `startFiring()`：`origin = getEyePos()`；若 `revengeTarget` 存活，`dir = revengeTarget.getEyePos().subtract(origin)`（眼睛对眼睛，含Y）；否则 `dir = getRotationVector()`（不再 `multiply(1,0,1)`，保留完整俯仰）；`lengthSquared<1e-6` 回退 `(0,0,1)`；normalize 后同时写入 `firingDirX/Y/Z` 与三个 DataTracker。蓄力期间 `lookAt(revengeTarget)` 保持含Y视觉跟随
+- 所有旧逻辑中 `new Vec3d(firingDirX,0,firingDirZ)` 改为 `new Vec3d(firingDirX,firingDirY,firingDirZ)`
+
+**2. 服务端：伤害 / 判定 / 破坏改为3D**
+
+- `applySonicDamage()`：`origin = getEyePos()`，`dir` 3D，`end = origin+dir*RANGE`；AABB 三轴均取 `min(origin,end)±HALF_WIDTH` / `max(origin,end)±HALF_WIDTH`（不再只围绕 origin.y）；`takeKnockback(0.4, -dir.x, -dir.z)` 保持水平击退（Y击退由 `damage` 内部处理，避免击飞过高）
+- `isInBeam()`：复用三维投影 `proj = toTarget.dot(dir)`，过滤 `proj<0 || proj>RANGE`，`distSq <= (HALF_WIDTH + width*0.5)^2`；`toTarget` 的 Y 用 `targetY+height*0.5 - origin.y`，与3D dir 一致
+- `processBlockDestruction()`：`origin = getEyePos()` 统一；`dir` 3D；删除旧水平十字分支，改为**半径内实心圆柱**（按 opencode P1-1 修订）：`r = floor(HALF_WIDTH)`=2 遍历 `dx,dy,dz∈[-r,r]`，每块判定用**薄片约束** `|axial| = |(p-center)·dir| ≤ 0.5`（保证每段是垂直于光波轴的 1 格厚薄片，相邻段间隔 1 格无缝覆盖 30 格）+ **圆柱半径** `perpSq = |p-center|² - axial² ≤ HALF_WIDTH²`（6.25，半径与伤害一致=2.5），每段约 21 块（5×5 减角），总尝试约 630 次/攻击；去重用 `brokenThisAttack`，保留 `drop=false` 与 `blastResistance>8.0` 跳过
+- `cancelAttack()` 补清 `FIRING_PROGRESS=0`
+
+**3. 数值常量**
+
+- `HALF_WIDTH 1.5→2.5`、`DAMAGE 4.0f→6.0f`、`GENERIC_MAX_HEALTH 50→80`、`GENERIC_ARMOR 4→8`；`RANGE 30`、`DAMAGE_INTERVAL 10`、`CHARGING 122/FIRING 80/COOLDOWN 20`、`KNOCKBACK_RESISTANCE 0.2` 不变
+
+**4. 客户端：渲染改为3D**
+
+- `BigDogSonicBeamRenderer.render()`：同时读取 `FIRING_DIR_X/Y/Z`（fallback 到普通字段）；用三维长度判有效性（不能只判 X/Z——完全垂直时光波 X/Z 可能同时为零）；归一化后用 `Quaternionf.rotationTo(new Vector3f(0,0,1), dir3d)` **单步**将本地 +Z 轴对齐到 dir（opencode P2-2，绕开近垂直 `atan2(0,0)` 奇点；yaw+pitch 组合仅作备选注释）；`radius = (float)HALF_WIDTH`（2.5）、`beamLen = RANGE`（引用常量不再硬编码30/1.5）；`translate(0, getEyeY()-getY(), 0)` 替代固定0.7；环面局部 XY 平面经四元数旋转后自然垂直于 dir；各 quad 法线按各自局部平面设置（不再统一 `(0,1,0)`）
+- 视锥：`BigDogBillboardRenderer` 可选覆盖 `shouldRender()`，用光波 swept Box（端点±HALF_WIDTH）做 Frustum 判定，避免大狗在视野边缘时整条30格光波被提前裁剪
+
+**5. 同步与兼容**
+
+- 新增 `FIRING_DIR_Y` 追加在旧 tracker 末尾保持 ID 顺序；三个方向分量在同一个 `startFiring()` tick 写入；客户端遇未同步完整时用三维长度+有限性校验，X/Z 为零但 Y 合法时不得丢弃
+- `sounds.json` / `ModSounds` / `BigDogEntitySound` / `BigFruitModClient` 无需改动（死亡截断已在客户端跟踪）
+
+### 验证方案
+
+1. `./gradlew build` 通过，`fresh_fruit` 未覆盖
+2. 水平目标：受击后光波仍水平命中，伤害6、击退0.8、每10t一次
+3. 垂直目标：高塔/深坑中攻击，狗抬头/低头，光柱沿3D方向延伸30格，光环垂直于光柱推进，`RANGE` 内目标受伤
+4. 方块破坏：斜向/垂直发射，破坏截面约5×5实心圆柱（`floor(HALF_WIDTH)`+薄片约束，每段约21块），每段仅一次，`blastResistance>8.0` 跳过、`drop=false`、30段内完整覆盖；多只大狗同时 FIRING 时观察服务端性能（P2-1，峰值约8~10块/tick）
+5. 渲染：`FIRING` 80t内光柱30格、6环×16段随 `FIRING_PROGRESS` 推进、近垂直不消失；死亡时声音立即截断
+6. 存档兼容：旧存档加载方向Y默认0，仍可正常进入下一轮攻击
+
+### Critical Files for Implementation
+
+- `src/main/java/com/mymod/bigfruit/entity/BigDogEntity.java`
+- `src/client/java/com/mymod/bigfruit/client/render/BigDogSonicBeamRenderer.java`
+- `src/client/java/com/mymod/bigfruit/client/render/BigDogBillboardRenderer.java`（视锥/调用）
+- `src/main/java/com/mymod/bigfruit/registry/ModEntities.java`（确认尺寸无需改）
+- `src/main/resources/assets/big-fruit-mod/sounds.json`（确认 attenuation 32 保持）
+
+---
+
+## 第四次迭代：动漫冲击波 3D 光波 + 破坏提速（本次，计划中）
+
+### Context
+
+第三迭代已落码（80血/8甲/2.5半宽/6伤害、完全3D全向、`rotationTo` 对齐、薄片圆柱破坏，opencode 8-9轮通过，build通过）。当前光波在第三迭代后已是3D方向，但视觉仍廉价、且部分角度不可见：经勘察 `BigDogSonicBeamRenderer` 为2片薄交叉quad（hw=hh=0.32，整束仅0.64宽 vs 判定直径5）、`BEAM_LAYER=getBeaconBeam(..., true)` 开启背面剔除（camera在 -Y/-X侧时两片同时被剔除→整束消失）、`quad()` 法线全写 `(0,1,0)`（第二片法线错误→光照暗）、几何过薄导致掠射角投影接近0。用户反馈"太廉价、不是3D、有些角度看不见"，并提供参考图 `src/main/resources/light.jpg`（龙息三视图：中心双螺旋亮核 + 多层六边形嵌套环 + 蓝色电弧 + 外层火焰/电路纹理 + 顶部冲击波/地面龟裂），要求改为**动漫冲击波**风格并保留黄系，且破坏"加快一点点"。
+
+### 用户原始要求汇总（本次新增，供 opencode 参考）
+
+1. **光波视觉升级**：太廉价、非3D、部分角度消失，需改为炫酷3D特效，风格已选 **动漫冲击波**（按三视图龙息：双螺旋内核 + 多层六边形光环 + 电弧外晕 + 粒子弥散 + 地面冲击感）。颜色保持黄系但需层次感（内核更亮、外晕更饱和）。
+2. **破坏提速**：当前30格破坏用80t（4s，0.375格/tick）推进太慢，要求"加快一点点"，已确认提速至 **约50t跑完30格（0.6格/tick，提速60%），仍保留推进感**，而非瞬间打满。伤害节律与音频时长（122t/80t）保持不变，破坏提前完成、后续仅视觉/伤害延续。
+3. **参考图处置**：`src/main/resources/light.jpg` 仅作设计参考，不应打入jar；要求使用后移到合适位置或删除。
+
+### 已勘察现状（增量前）
+
+- `BigDogSonicBeamRenderer.java`（当前 rotationTo 3D 版）：`BEAM_TEX=beacon_beam.png`、`BEAM_LAYER=getBeaconBeam(..., true)`（第二参为 depthTest 而非剔除开关，beacon beam 层本身双面 `Cull.DISABLE`；原计划误诊为剔除）；`hw/hh=0.32` 双交叉quad共8顶点；`radius=HALF_WIDTH 2.5`、`rings=6` 每环16段、`thick 0.18`，`getEntityTranslucent` 双面；`quad()` 法线固定 `(0,1,0)`（第二片法线错误）；`render()` 仅 `FIRING` 时绘制，`translate eyeY` + `rotationTo(+Z,dir)` 已3D对齐
+- `BigDogBillboardRenderer.java`：1.2×1.2 billboard + `FIRING` 时叠加 beam，状态感知贴图
+- `BigDogEntity.java`：`FIRING_TICKS 80` 驱动 `FIRING_PROGRESS` + `processBlockDestruction`（30段/80t，每tick最多1段，`r=floor(2.5)=2` 薄片圆柱）；`applySonicDamage` 每10t 半径2.5 圆柱
+- `src/main/resources/light.jpg`：JPG 三视图，位于 `src/main/resources` 会被 gradle 打入 `build/resources/main`，需移出
+
+### 推荐方案（增量，不推翻前三版）
+
+**1. 修复"部分角度看不见"（P0，按 P1-2 修正）**
+
+- 根因：0.64 宽交叉片在掠射角投影接近0 + 第二片法线固定 `(0,1,0)` 过暗 + α 仅0.42；beacon beam 层本身双面（第二参 `depthTest` 非剔除），原计划误诊为剔除
+- 修复：`BEAM_LAYER` 改为 **双面且保留深度测试**：`RenderLayer.getEntityTranslucent(BEAM_TEX)`（Yarn 源码 `Cull.DISABLE`），或维持 `getBeaconBeam(..., true)` 不动；**不要**用 `getBeaconBeam(..., false)`（会关深度测试→穿墙可见）
+- 光束本体由2片十字升级为 **6～8片围成的棱柱/圆柱**（如6边棱柱绕Z每60°一片，共6*4=24顶点，或8边形 8*4=32顶点，修正原"16片"笔误），使任意掠射角均有厚度；每片法线按真实面朝外计算（`normal = outerDir`），不再固定 `(0,1,0)`
+
+**2. 动漫冲击波视觉升级（黄系层次感，参考三视图）**
+
+- **外层光柱**：半径 `HALF_WIDTH 2.5`（与判定一致），半透明橙黄晕（α 0.22～0.32），6～8片棱柱侧面，纹理沿Z滚动（`progress` 驱动 UV 偏移，`tickDelta` 平滑）
+- **内核光柱**：半径约 0.7～1.0 的更亮内芯（α 0.65～0.85，颜色近白黄 `1.0,0.96,0.72`），同样棱柱但略短/随推进淡出，形成"外晕包亮核"的体积感
+- **双螺旋**：在内核内用2条细螺旋带（各8～12段小quad，半径0.3，随 **0..1 归一化 progress（`getFiringProgress()/100.0f`）** 旋转 `progress* TAU` + `tickDelta`），颜色白黄 + 轻微自发光，模拟参考图中扭曲核心
+- **光环升级**：由6个圆形扁环改为 **6个六边形冲击环**（每环6段棱柱而非16段圆环，或保留16段但顶点按六边形半径调制），`thick` 0.18→0.22，颜色外环 `1.0,0.78,0.15` α 0.55～0.72，**边缘叠加蓝色电弧**（第二层同半径、更薄、颜色 `0.45,0.68,1.0` α 0.45，`uvOffset = (progress * 8.0f) % 1.0f` 闪烁），段间距保持5，沿光束 `base = i*5 + (progress*6)%5` 推进（progress 均指 0..1 归一化）
+- **粒子/冲击感（轻量）**：发射口处可选 1～2 帧的环形粒子/发光quad，地面冲击点可选裂纹贴花（低优先级）；优先保证光束+光环主体
+
+**3. 破坏提速（30格 80t → 约50t，按 P1-1 修正公式）**
+
+- 新增常量 `BLOCK_BREAK_DURATION_TICKS = 50`，`processBlockDestruction` 的 `targetSegments` 改为 `ceil(progressDestruction * totalSegments)`，其中 `progressDestruction = clamp((FIRING_TICKS - firingTicksRemaining) / (float) BLOCK_BREAK_DURATION_TICKS, 0.0, 1.0)`（elapsed 模式，与现有 `BigDogEntity.java:259/345` 一致），使30段在前50t内跑完（峰值约 0.6 段/tick，`while` 连续推进可偶发2段/tick），剩余30t仅保留伤害/视觉
+- `brokenThisAttack` 去重、`tryBreakBlock` 逻辑、`HALF_WIDTH` 半径、`drop=false`/`blastResistance>8` 保持不变
+
+**4. 参考图处置**
+
+- 使用后将 `src/main/resources/light.jpg` 移至 `docs/reference/dragon-breath-ref.jpg`（或 `docs/REFERENCE/`），或若无需保留则删除；确保 `src/main/resources` 下不再包含该 JPG，避免打入 `build/resources/main` 与 jar
+
+### 关键文件变更（本次）
+
+- 修改：`src/client/java/com/mymod/bigfruit/client/render/BigDogSonicBeamRenderer.java`（剔除/法线/棱柱化/双层光柱/双螺旋/六边形环+电弧/滚动UV）
+- 轻改：`src/main/java/com/mymod/bigfruit/entity/BigDogEntity.java`（新增 `BLOCK_BREAK_DURATION_TICKS 50`、`processBlockDestruction` 用新分母）
+- 可选：`src/client/java/com/mymod/bigfruit/client/render/BigDogBillboardRenderer.java`（视锥 swept Box）
+- 资源处置：移动/删除 `src/main/resources/light.jpg` → `docs/reference/dragon-breath-ref.jpg`
+
+### 验证方案（本次）
+
+1. `./gradlew build` 通过，`light.jpg` 不在 `build/resources/main` 与 jar 中，`fresh_fruit` 未覆盖
+2. 廉价修复：`FIRING` 时从任意角度（正前方、正后方、侧面、顶部、掠射角）观察光束均可见，无"环还在柱没了"现象；法线正确导致光照均匀
+3. 3D体积感：外晕直径5（与判定一致）、内核更亮、双螺旋随时间旋转、光环为六边形且边缘有蓝电弧闪烁，整体黄系层次分明，近参考图动漫冲击波观感
+4. 破坏提速：30格破坏在约50t内跑完（计时观察方块推进明显快于80t版），80t 内伤害仍每10t一次、音频完整、光束全程可见；多狗同时 `FIRING` 时服务端无明显卡顿
+5. 回归：水平/垂直/斜向命中、死亡截断、存档兼容均保持第三迭代行为
+
+---
+
+## 第五次迭代：护甲伤害 + 鲜艳龙息配色 + 射程50 + 破坏覆盖视觉（本次，已落码）
+
+### Context
+
+第四迭代已闭环（动漫冲击波 6棱柱+双螺旋+六边环+蓝电弧、`BLOCK_BREAK_DURATION_TICKS 50` 50t前推、80血/8甲/0.8击退、铁傀儡式持续追杀、opencode 10-11轮通过、build通过）。用户实测反馈4点需增量修复，本迭代不推翻既有架构（`fresh_fruit`保留、122t/80t/20t状态机、3D全向、死亡截断、双召唤物）。
+
+### 用户原始要求汇总（本次新增，供 opencode 参考）
+
+1. **伤害去无视甲**：当前 `sonicBoom` 伤害无视护甲，需改为直接伤害（已确认改用 `mobAttack`，受护甲/抗性/保护附魔减免，数值仍6）
+2. **光波更鲜艳**：偏淡，需更鲜艳贴近 `docs/reference/dragon-breath-ref.jpg`（已确认先出色板对比，已选方案A暖金冲击波）
+3. **射程加长**：30→50格
+4. **破坏覆盖特效**：特效盖住的地方都能被破坏（已确认全同步 HALF_WIDTH 2.5→3.0，直径6，伤害/破坏/视觉三者同步）
+
+### 已勘察现状（增量前）
+
+- `BigDogEntity.java:36-40` `RANGE 30`/`HALF_WIDTH 2.5`/`DAMAGE 6`/`BLOCK_BREAK_DURATION 50`/`FOLLOW_RANGE 32`
+- `applySonicDamage:321-326` `sonicBoom(this)` 尝试（`bypasses_armor:true`）为主
+- `processBlockDestruction:354-389` `r=floor(2.5)=2` 薄片圆柱每段21块总量630，视觉外沿2.5+0.22=2.72略超出破坏
+- `BigDogSonicBeamRenderer.java` 外棱柱 `0.95,0.78,0.15 α0.22-0.38`、内核 `1.0,0.97,0.64 α0.62`、螺旋 `1.0,0.96,0.72 α0.55`、环 `1.0,0.86,0.18 α0.68` + 电弧 `0.52,0.72,1.0 α0.45`，均偏淡
+
+### 推荐方案（增量，已落码）
+
+**1. 伤害：** `applySonicDamage` 改 `getDamageSources().mobAttack(this)`（受甲），`mobAttack` 无内置击退直接 `takeKnockback(0.8, -dir)` 保持总击退0.8，删除 `try sonicBoom`
+
+**2. 鲜艳：** 仅改 `BigDogSonicBeamRenderer` 6处 `color/alpha`（方案A暖金冲击波，已选）：
+- 外棱柱 `0.95,0.78,0.15 → lerp(1.0,0.62,0.05, 1.0,0.85,0.35)`（helix驱动，`g 0.62→0.85, b 0.05→0.35`）、`α0.22-0.38→0.32-0.55`
+- 内核 `1.0,0.97,0.64 α0.62→1.0,0.92,0.18 α0.75`
+- 双螺旋 `1.0,0.96,0.72 α0.55→1.0,0.96,0.35 α0.65`
+- 环 `1.0,0.86,0.18 α0.68→1.0,0.78,0.05 α0.78`
+- 电弧 `0.52,0.72,1.0 α0.45→0.35,0.60,1.0 α0.60`
+- 环数 `6→max(6, ceil(length/5))=10` 覆盖50格；`EntityTranslucent` 双面保留
+
+**3. 距离：** `RANGE 30→50`、`FOLLOW_RANGE 32→64`、`sounds.json attenuation 32→64`、`BLOCK_BREAK_DURATION 50` 保持（50段/50t=1.0段/tick）
+
+**4. 破坏覆盖：** `HALF_WIDTH 2.5→3.0`（直径6）三者同步；破坏 `r=3` 每段约28-30块总量约1500/攻击，峰值1段/tick≈30块/tick，50t跑完；环外沿 `3.0+thick0.22=3.22` 比破坏半径多0.22格为半透明装饰余量，可接受
+
+### 关键文件变更（本次）
+
+- 修改：`src/main/java/com/mymod/bigfruit/entity/BigDogEntity.java`（RANGE/FOLLOW/HALF_WIDTH/伤害源）
+- 修改：`src/client/java/com/mymod/bigfruit/client/render/BigDogSonicBeamRenderer.java`（5处颜色/α + 环数随RANGE）
+- 轻改：`src/main/resources/assets/big-fruit-mod/sounds.json`（32→64）
+- 资源：`docs/reference/dragon-breath-ref.jpg` 已就位
+
+### 验证方案（本次）
+
+1. `./gradlew build` 通过，`fresh_fruit` 未覆盖
+2. 伤害：无甲仍6/10t，穿甲伤害显著降低，击退0.8保持
+3. 颜色：方案A暖金（外晕橙金、内核金黄、电弧更蓝）多角度不再偏淡
+4. 距离：50格内目标可命中，声音50格可闻，FOLLOW 64下远目标可追踪
+5. 破坏：直径6全覆盖，50格50t跑完，约1500块/攻击，多狗并发无卡顿
+6. 回归：死亡截断、3D全向、122t/80t/20t、80血8甲、持续追杀保持
+

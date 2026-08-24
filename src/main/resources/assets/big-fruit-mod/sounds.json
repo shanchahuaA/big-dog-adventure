@@ -4,13 +4,13 @@
       "big-fruit-mod:entity/big_dog/charge_loop"
     ],
     "subtitle": "big-fruit-mod.subtitle.big_dog_charge",
-    "attenuation_distance": 32
+    "attenuation_distance": 64
   },
   "big_dog_call": {
     "sounds": [
       "big-fruit-mod:entity/big_dog/call"
     ],
     "subtitle": "big-fruit-mod.subtitle.big_dog_call",
-    "attenuation_distance": 32
+    "attenuation_distance": 64
   }
 }
