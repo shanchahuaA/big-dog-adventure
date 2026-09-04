@@ -406,3 +406,138 @@
 5. 破坏：直径6全覆盖，50格50t跑完，约1500块/攻击，多狗并发无卡顿
 6. 回归：死亡截断、3D全向、122t/80t/20t、80血8甲、持续追杀保持
 
+# 第六迭代计划：仇恨重构 + 口罩 + 蓄力护甲 + 数值 + 同类免伤（已修订待复核，纳入 REVIEW_16/17/18）
+
+## Context
+
+第五迭代已闭环（80血/8甲/直径6音波、暖金冲击波3D光波、50格/50t破坏、铁傀儡式持续追杀已落码，`fresh_fruit` 保留，build通过）。第三至第五迭代已将 `BigDogEntity` 改为完全3D全向（`FIRING_DIR_Y`、eyePos向量、棱柱光柱+双螺旋+六边环+电弧，`HALF_WIDTH 3.0`/`RANGE 50`/`DAMAGE 6`/`BLOCK_BREAK_DURATION 50`、`FOLLOW 64`、`mobAttack`受甲、击退0.8），但仇恨仍仅为"受击反击"（`damage()` 里设 `revengeTarget`，`IDLE` 仅追该目标），无主动索敌；`applySonicDamage` 仅 `if (target==this) continue`，会误伤同类；无口罩概念；蓄力期护甲恒为8，122t蓄力窗口易被秒杀。
+
+用户本次（2026-08-27）提出第六迭代5点增量，要求在不推翻既有架构（`fresh_fruit`保留、122t/80t/20t状态机、3D全向、死亡截断、双召唤物、50格/50t/直径6/暖金配色保持）的前提下重构仇恨与生存性。opencode 第14轮审查（无P0，4个P1）与用户新拍板已一并纳入本修订。
+
+## 用户原始要求汇总（本次新增，供 opencode 参考）
+
+> 本节与正文保持同步，供 opencode 审阅，避免误解。
+
+1. **仇恨优先级（类铁傀儡）**：大狗讨厌一切和病毒有关的东西，优先级 **循声守卫(warden) > 亡灵生物(undead) > 无口罩玩家 > 其余敌对生物(hostile)**（2026-08-27 用户新拍板，由原"无口罩玩家最低档"上调至第三级，戴口罩玩家直接排除）。**铁傀儡式持续追击（不摇摆）**：有现行合法目标时打到底，仅失效（死亡/移除/戴口罩/同类/spectator/超 64 格）后才按优先级换目标（REVIEW_15/16 纠正确认）。
+2. **玩家视为敌对（无口罩时）**：玩家未穿戴"口罩"时，大狗将其视作敌对生物（纳入索敌，优先级见1）。
+3. **口罩为头盔（未制作，未来做）**：口罩是一个头盔。尚未制作但已规划；玩家穿戴口罩时，大狗对玩家失去仇恨（不再索敌/脱战）。本迭代新增占位口罩（已确认）。
+4. **蓄力期护甲提升**：蓄力阶段护甲由8提升至16（解决蓄力122t窗口易被秒杀）。
+5. **血量提升**：80 → 100。
+6. **同类免伤免仇恨（类铁傀儡）**：大狗不会对其他大狗造成伤害，也不对其他大狗产生仇恨；音波不伤同类。
+
+> 注：用户原文编号重复，3实际为两条（口罩形态 + 穿戴脱战），此处拆为2+3。
+
+## 已勘察现状（增量前）
+
+- `BigDogEntity.java:32-40` `CHARGING 122`/`FIRING 80`/`COOLDOWN 20`/`RANGE 50`/`HALF_WIDTH 3.0`/`DAMAGE 6`/`BLOCK_BREAK_DURATION 50`
+- `createAttributes:72-80` `MAX_HEALTH 80`/`ARMOR 8`/`FOLLOW 64`/`KB 0.2`/`ATK 2`；`damage:130-152` 仅对 `LivingEntity attacker != this` 设 `revengeTarget`/`setTarget`，无类型过滤
+- `initGoals:83-88` 仅 `Swim/Wander/LookAt/LookAround`，无任何 `ActiveTargetGoal`/`RevengeGoal`，索敌完全依赖 `damage()` 后的 `revengeTarget`
+- `tick IDLE:221-232` 仅当 `revengeTarget != null` 且 `cooldown<=0` 时 `startCharging`，无主动扫描；`startCharging:160-167` 内 `getNavigation().stop()` 立即取消导航（导致追击从未发生，原地蓄力）
+- `applySonicDamage:301-330` `if (target==this) continue` 后直接 `mobAttack`，未排除 `BigDogEntity`
+- `ModItems.java:17-21` 仅 `FRESH_FRUIT/SPAWN_EGG/SUMMON`，无口罩；`BigFruitMod.java:21-24` 按顺序注册
+- `BigFruitModClient.java` 仅 `BillboardRenderer` 与声音，未涉及索敌
+- 亡灵判定可用 `entity.getGroup() == EntityGroup.UNDEAD`；敌对可用 `instanceof Monster` / `HostileEntity`；循声守卫为 `EntityType.WARDEN`；`addTemporaryModifier`/`removeModifier(UUID)`、`getEquippedStack(EquipmentSlot.HEAD)` 在 Yarn 1.20.1 均可用
+
+## 推荐方案（增量，不推翻前五版，已纳入 REVIEW_14/15/16/17/18）
+
+### 1. 同类免伤免仇恨（P0，改动最小先做）
+
+- `applySonicDamage` 首行追加 `if (target instanceof BigDogEntity) continue`（与 `target==this` 同级），彻底阻断音波对同类伤害（含击退与 `damage()`）。
+- `damage()` 追加同类过滤：`attackerLiving instanceof BigDogEntity` 时不设 `revengeTarget`/`setTarget`，避免同类互殴误触发蓄力；`source.getSource() instanceof BigDogEntity` 同理。
+- `isInBeam` 不需改，`applySonicDamage` 已前置过滤，保留性能。
+- 可选：`processBlockDestruction` 不动（仅破方块，无实体伤害）。
+
+### 2. 主动仇恨重构（类铁傀儡，优先级 守卫>亡灵>无口罩玩家>其他敌对，范围64已确认）
+
+**选型**：不照搬铁傀儡的多 `ActiveTargetGoal` 堆叠（优先级数字易与 `Swim/Wander` 冲突且 `Monster` 判定含亡灵会导致优先级失效），改为 **单一 `tick()` 主动扫描 + 优先级选优**，复用现有 `revengeTarget`/`setTarget`/`startCharging` 链路，改动面最小且易于加入口罩与同类过滤。`goalSelector` 可保留纯移动/观察，索敌由 `tick()` 驱动（与当前 `IDLE` 逻辑一致，便于 opencode 复核）。
+
+- 新增方法 `findPreferredTarget()`（服务端，仅 `!isClient`）：
+  - 扫描 `Box`：以自身为中心、半径 `FOLLOW_RANGE`（64）的 `Box`，`world.getNonSpectatingEntities(LivingEntity.class, box, predicate)`，predicate 预过滤 `isAlive && !isRemoved && !isSpectator(玩家旁观者) && !(e instanceof BigDogEntity) && e != this`（P2-6 采纳）。
+  - 优先级打分（已按用户新拍板调整，REVIEW_14 §"给 claudeCode 的话"）：`Warden`（`e.getType()==EntityType.WARDEN`，4分）> `Undead`（`e.getGroup()==EntityGroup.UNDEAD`，3分）> `无口罩玩家`（`e instanceof PlayerEntity && !isWearingMask(...)`，2分）> `其他敌对`（`e instanceof Monster` 或 `HostileEntity`，1分）。同分按 `squaredDistanceTo` 最近者胜；戴口罩玩家直接排除（0分不入选）。
+  - 返回最高分目标或 `null`。垂直范围暂沿用全向 `expand(64)`（P2-5 暂不收敛，待后续验证是否需仿铁傀儡 `水平followRange/垂直±4~8`）。
+
+- `tick()` 的 `IDLE` 分支改造（已采纳 REVIEW_14 P1-2，REVIEW_15 纠正 P1-1 语义反转）：
+  - 保留 `cooldownTicksRemaining` 递减。
+  - **铁傀儡式持续追击（REVIEW_15 纠正）**：若 `revengeTarget` 存活且 `isValidTarget(revengeTarget)` 且在 `FOLLOW_RANGE 64` 内（对齐原版 `canTrackTarget` 距离判定），则**沿用当前目标**（走 P1-2 射程门控，>RANGE 只追不蓄力），**不**每 tick 调用 `findPreferredTarget()` 覆盖；避免"这边打一下那边打一下"的摇摆，符合铁傀儡 Revenge 锁定语义。**IDLE 追击中受击转头（REVIEW_16 P2-1 明示）**：IDLE 沿用 warden 追击中被无口罩玩家攻击，`damage()` 将 `revengeTarget` 覆盖为玩家（最新攻击者优先，符合铁傀儡），下一 `IDLE` 即转头打玩家——属正常最新攻击者优先，不算摇摆。
+  - 仅当 `revengeTarget` 失效（死亡/移除/戴口罩/同类/spectator/**超出 64 格**）时才清空 `revengeTarget`/`setTarget(null)`，当 `cooldown<=0` 时调用 `findPreferredTarget()` **主动索敌**（REVIEW_15 用户确认：不限于受击反击，无目标时扫描命中即蓄力攻击，不得要求先被打）。
+  - **P1-2 射程门控（统一适用于现行目标与新选目标，含回退目标）**：命中目标后先判距——若 `squaredDistanceTo(target) > RANGE*RANGE`（50格外，FOLLOW 64 扫到 50~64 段，或回退的远处 revengeTarget），则仅 `getNavigation().startMovingTo(target, 1.0)` + `lookAt`，**不** `startCharging()`；进入 `RANGE` 内再蓄力。避免 50~64 格原地空放（每轮空放仍会产生约1500块破坏）。
+  - 否则（射程内）：`revengeTarget = found; setTarget(found); startCharging()`（`startCharging` 内快照目标，见下）。保持 `CHARGING/FIRING/COOLDOWN` 期间不重选目标（避免蓄力中切目标抖动），仅 `IDLE` 选新目标。
+  - 保持 `CHARGING` 期间仅因口罩/死亡/超距重校验（`CHARGING` 中若目标变为不合法则 `cancelAttack` 并下一 tick 重扫下一目标，避免戴口罩后空转 bug），`FIRING` 期间不因口罩中断（打完再选），`COOLDOWN` 不选新目标。
+  - **CHARGING/FIRING 中受击的方向语义（REVIEW_16 P1-1 方案 B 快照，REVIEW_17 P2 细化，REVIEW_18 P2 同步清快照）**：`startCharging()` 时快照当前 `revengeTarget` 的**实体引用**（`chargingTarget: LivingEntity`，非冻结 Vec3d，避免 122t 内目标移动偏离），`startFiring()` 再取 `chargingTarget.getEyePos()` 计算方向（保持蓄力结束时方向准确）；`tickCharging()` 的 `lookAt` 也跟随 `chargingTarget` 而非 `revengeTarget`（避免视觉转向玩家而发射朝 warden 的违和）；`damage()` 在非 `IDLE` 期间允许覆盖 `revengeTarget`（记录最新攻击者），但**不改变当前 `chargingTarget` 与发射方向**，仅打完整轮回到 `IDLE` 后沿用新 `revengeTarget` 再反击。`cancelAttack()` 同步置 `chargingTarget = null`（REVIEW_18 P2，防止死亡/打断/口罩脱战后悬挂引用）。即 CHARGING 中被无口罩玩家打断 warden 蓄力，光波仍朝 warden，打完下一轮才转玩家。
+
+- 新增 `isValidTarget(LivingEntity)` 供 `tickCharging`/`tick` 复用：`isAlive && !isRemoved && !(e instanceof BigDogEntity) && !(e instanceof PlayerEntity && isWearingMask(...))`；`Warden/Undead/Monster` 无需额外存活外校验。旁观者玩家已在 `findPreferredTarget` 谓词排除，`isValidTarget` 也追加 `!isSpectator`。
+
+- 兼容受击反击：`damage()` 仍保留，但追加同类与口罩玩家过滤——若 `attackerLiving instanceof PlayerEntity && isWearingMask(...)` 则不设仇恨；若 `attackerLiving instanceof BigDogEntity` 则丢弃。受击设置的 `revengeTarget` 将**持续沿用直至失效**（REVIEW_15 纠正），失效后才按优先级选优；**受击立即蓄力需过射程门控（REVIEW_18 P1-1）**：`damage()` 中 `IDLE && cooldown<=0` 时仅当 `squaredDistanceTo(attacker) <= RANGE*RANGE`（50格内）才立即 `startCharging()`，**射程外仅设 `revengeTarget`/`setTarget` 不蓄力**，由下一 `IDLE` 沿用判定+门控（§2 461/463 行）追近至 50 格内再蓄力，避免 55 格弓箭手攻击触发空放破坏（约1500块）。打完整轮（122t+80t+20t）回到 `IDLE` 后才重选（符合铁傀儡反击优先）。
+
+### 3. 口罩（头盔，占位实现，未来可替换）
+
+**选型**：用户明确"口罩是一个头盔，本迭代新增占位"（已确认）。为使 §2 的 `isWearingMask` 可落地，**本迭代新增占位口罩物品**，后续仅需替换贴图/模型/配方，不改逻辑。
+
+- 新增 `item/MaskItem.java` 继承 `ArmorItem`（`ArmorMaterial` 选用轻量占位如 `ArmorMaterials.LEATHER` 或自定义 `MaskArmorMaterial`，`Type.HELMET`，`Settings` 普通），注册 ID 建议 `mask`（`big-fruit-mod:mask`）。耐久沿用 `LEATHER` 55（P2-8 占位期可接受，后续若需"不损耗"可 `maxDamage(0)`）。
+- `ModItems.java` 新增 `public static final Item MASK = register("mask", new MaskItem(...))`，并在 `registerItems()` 中加入 `ItemGroups.COMBAT` 或 `ItemGroups.INGREDIENTS` 入口（便于 `/give` 测试）。
+- 校验方法 `isWearingMask(PlayerEntity player)`（置于 `BigDogEntity` 静态工具或 `MaskItem` 伴生）：
+  ```java
+  public static boolean isWearingMask(PlayerEntity p) {
+      var stack = p.getEquippedStack(EquipmentSlot.HEAD);
+      return !stack.isEmpty() && stack.isOf(ModItems.MASK);
+  }
+  ```
+  若用户后续希望口罩为多材质/标签兼容，可改为 `stack.isIn(ModTags.MASK)` 或 `instanceof MaskItem`，本迭代先按 `isOf` 实现，最小可用。
+- 脱战语义（已确认：仅蓄力脱战）：已在 §2 的 `isValidTarget`/`findPreferredTarget` 中排除穿戴者；追加 `tick()` 每 tick 若 `revengeTarget instanceof PlayerEntity && isWearingMask(...)` 则：`CHARGING` 立即 `cancelAttack() + setTarget(null) + revengeTarget=null`（下一 tick `IDLE` 立刻 `findPreferredTarget()` 找下一个仇恨，避免"戴口罩导致不攻击任何生物"的 bug）；`FIRING` 不中断（打完本轮 80t，`COOLDOWN→IDLE` 后再选下一目标），避免光波中途消失的突兀感。
+- 资源占位：`src/main/resources/assets/big-fruit-mod/models/item/mask.json`（`parent: item/generated` + `textures layer0`）、`textures/item/mask.png`（16×16 占位白口罩）、`lang` 中 `item.big-fruit-mod.mask` 中英条目。正式美术到位后直接覆盖。
+
+### 4. 蓄力期护甲 8→16（122t窗口生存性）
+
+**选型**：护甲为 `EntityAttribute`，不可每 tick `setBaseValue`（会丢失附魔/药水叠加的语义），应使用 `EntityAttributeModifier` 瞬态加成。
+
+- 在 `BigDogEntity` 新增常量 `UUID CHARGING_ARMOR_UUID` 与 `EntityAttributeModifier CHARGING_ARMOR_BONUS = new EntityAttributeModifier(CHARGING_ARMOR_UUID, "Charging armor bonus", 8.0, Operation.ADDITION)`（8为增量，基数8+8=16）。
+- `startCharging()` 中 `getAttributeInstance(GENERIC_ARMOR).addTemporaryModifier(CHARGING_ARMOR_BONUS)`（若已存在则先移除再添加，防重叠）。
+- `startFiring()` / `enterCooldown()` / `cancelAttack()` / `onDeath()` 中 `removeModifier(CHARGING_ARMOR_UUID)`。
+- 存档：`charging` 状态不持久化（`readCustomDataFromNbt` 已对 `CHARGING/FIRING` 做 `cancelAttack()`），无需 NBT 额外字段；重登后护甲回归8，符合预期。`removeModifier(UUID)` 幂等，`addTemporaryModifier` 同 UUID 覆盖，先移除再添加即可（P1-4 已采纳）。
+- 替代方案（若团队倾向极简）：`startCharging` 时 `setBaseValue(16)`、`startFiring` 时 `setBaseValue(8)`，本计划首选 Modifier，opencode 可二选一。
+
+### 5. 血量 80→100
+
+- `createAttributes()` 中 `GENERIC_MAX_HEALTH 80.0 → 100.0`。`ModEntities` 的 `dimensions`/`trackRange` 不变。已生成个体需 `/summon` 新实例或 `heal` 后 `maxHealth` 仍为旧值，属原版属性注册时机限制，文档中注明。
+
+### 6. 渲染/声音/方块破坏
+
+- 本迭代不改 `BigDogSonicBeamRenderer`（暖金、直径6、50格、6棱柱+双螺旋+六边环+电弧保持）、`sounds.json attenuation 64`、`BLOCK_BREAK_DURATION 50`，除非 §2 引入新状态需同步 `FIRING_PROGRESS`。
+- `BigDogBillboardRenderer` 的贴图切换（`bark`/`nobark`）保持。
+
+## 已确认（2026-08-27，用户拍板，REVIEW_15 追问纠正）
+
+1. 口罩：本迭代新增占位 `MaskItem`（`ArmorItem HELMET`），后续仅替换美术/配方。
+2. 脱战：仅蓄力脱战，发射打完本轮再选下一目标；需避免"戴口罩导致不攻击任何生物"—— `CHARGING` 取消后下一 tick 立刻重扫，`FIRING` 期间不因口罩中断。
+3. 范围：沿用 `FOLLOW_RANGE 64`。
+4. **新拍板（REVIEW_14 转达）**：无口罩玩家优先级上调至第三级，新顺序 Warden > Undead > 无口罩玩家 > 其他敌对（原最低档上移）。
+5. **追问纠正（REVIEW_15）**：铁傀儡式持续追击——有现行 `revengeTarget` 且合法/64格内时**不**每 tick 选优覆盖，仅失效后才按优先级选优；受击立即蓄力反击攻击者，打完整轮再重选；主动索敌仅无目标时触发，命中即蓄力（不限于受击）。验证 3 已补充"有反击目标时 warden 到场不切换"用例。
+
+## 关键文件变更
+
+- 修改：`src/main/java/com/mymod/bigfruit/entity/BigDogEntity.java`（`createAttributes` 100血、`CHARGING_ARMOR` 修饰、`chargingTarget` 快照、`findPreferredTarget`/`isValidTarget`/`isWearingMask`、 `tick IDLE` 主动扫描（仅无目标时）+持续追击+射程门控、`damage`/`applySonicDamage` 同类过滤、口罩脱战）
+- 新增：`src/main/java/com/mymod/bigfruit/item/MaskItem.java`（`ArmorItem HELMET`，`ArmorMaterials.LEATHER` 占位或自定义材质）
+- 修改：`src/main/java/com/mymod/bigfruit/item/ModItems.java`（注册 `MASK`、创造栏入口）
+- 新增资源：`src/main/resources/assets/big-fruit-mod/models/item/mask.json`、`textures/item/mask.png`、`lang` 条目
+- 可选：`src/client/java/com/mymod/bigfruit/client/render/BigDogBillboardRenderer.java`（若需为口罩玩家做视觉提示，低优）
+- 文档：`docs/BIG_DOG_PLAN_FOR_OPENCODE.md` 追加第六迭代章节；对话文件按协作约定同步写入 `opencode` 可见位置
+
+## 验证方案
+
+1. `./gradlew build` 通过，`fresh_fruit` 未覆盖，`big-fruit-mod:mask` 可 `/give`，戴/摘头盔可见
+2. 同类免伤：两只大狗相向，其中一只被激怒 `FIRING`，另一只位于光路中不受伤害/击退；`damage()` 中大狗互击不触发 `revengeTarget`
+3. 优先级（铁傀儡式持续追击，已按 REVIEW_15 纠正）：无现行目标时刷 `warden`+`zombie`+`creeper`+`无口罩玩家` 同场，大狗 `IDLE` 优先锁定 `warden`，`warden` 死后转 `zombie`，`zombie` 死后转 **无口罩玩家**，玩家戴口罩或死亡后才转 `creeper`；**有反击目标（玩家锁定）时 warden 到场不切换**，玩家死亡/跑出 64 格后才转 warden；戴口罩玩家始终不被选中。注意 warden 原生半径16内会主动攻击（P2-9），测试时拉开距离或控场再逐级验证。**蓄力中受击用例（REVIEW_16 P1-1）**：大狗蓄力打 warden 时被无口罩玩家打，光波仍朝 warden，打完下一轮才转玩家。
+4. 射程门控（P1-2 新增，REVIEW_18 补受击路径）：在 55 格（FOLLOW 64 内、RANGE 50 外）刷 `zombie`（主动索敌路径），大狗仅追击不蓄力；走到 50 内再蓄力发射，验证无空放破坏。**受击路径补充用例**：55 格弓箭手（无口罩玩家）用弓攻击大狗，大狗仅设 `revengeTarget` 追击不蓄力，进入 50 格再蓄力，无空放破坏。
+5. 口罩脱战：大狗锁定无口罩玩家后，玩家戴上口罩，`CHARGING` 立即取消、`IDLE` 下一 tick 锁定下一优先级目标（非空转）；`FIRING` 打完再选。
+6. 蓄力护甲（P1-3/P1-4 修订）：`CHARGING` 期间 `/attribute @e[type=big-fruit-mod:big_dog,limit=1] minecraft:generic.armor get` 显示 16（临时 modifier 已计入），`FIRING/IDLE` 回落 8；玩法级验证蓄力期同等攻击掉血显著低于非蓄力，`cancelAttack` 后护甲回落。
+7. 血量：新召唤大狗 `Health 100/100`，旧存档个体重召后生效
+8. 回归：死亡截断、3D全向、50格/50t/直径6/暖金配色、持续追杀、`drop=false`/`blastResistance>8`、`fresh_fruit` 保留均保持
+9. `git diff` 仅含本迭代新增/修改，未触 `fresh_fruit` 相关文件
+
+## REVIEW_14/15/16/17/18 回应小结
+
+- REVIEW_14 P1-1 已采纳后被 REVIEW_15 纠正：最终语义为铁傀儡式持续追击——有合法 `revengeTarget` 且 64格内时沿用，不每 tick 选优覆盖，仅失效后按优先级选优；
+- REVIEW_14 P1-2 已采纳：`squaredDistanceTo > RANGE*RANGE` 时只追不蓄力，射程内再蓄力（适用于现行目标、新选目标与回退目标），**REVIEW_18 补受击路径同样过门控**（射程外仅设 target 不蓄力）；
+- REVIEW_15/16/17 P1-1 受击方向已明确：`startCharging()` 快照实体引用 `chargingTarget`（方案 B），`startFiring()` 取快照 entity 眼位定向，`tickCharging lookAt` 跟随快照，`cancelAttack()` 同步清快照，`damage()` 非 IDLE 覆盖仅下一轮生效；
+- P1-3/P1-4 已采纳：`/attribute get` 与玩法级掉血对比；
+- 用户新拍板与 REVIEW_15 追问已落实：主动索敌仅无目标时触发、命中即蓄力；受击立即反击打完整轮再重选（射程内）；验证 3/4 已补充相应受击与射程用例；IDLE 追击中受击转头（最新攻击者优先）已在计划明示。

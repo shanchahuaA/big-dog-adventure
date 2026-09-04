@@ -19,6 +19,8 @@ public class ModItems {
             new SpawnEggItem(ModEntities.BIG_DOG, 0xE6C87A, 0x6B3A2A, new Item.Settings()));
     public static final Item BIG_DOG_SUMMON = register("big_dog_summon",
             new BigDogSummonItem(new Item.Settings()));
+    public static final Item MASK = register("mask",
+            new MaskItem(new Item.Settings()));
 
     public static Item registerItems(String id, Item item){
         return Registry.register(Registries.ITEM, RegistryKey.of(Registries.ITEM.getKey(), new Identifier(BigFruitMod.MOD_ID, id)), item);
@@ -48,6 +50,10 @@ public class ModItems {
         });
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.INGREDIENTS).register(entries -> {
             entries.add(BIG_DOG_SUMMON);
+            entries.add(MASK);
+        });
+        ItemGroupEvents.modifyEntriesEvent(ItemGroups.COMBAT).register(entries -> {
+            entries.add(MASK);
         });
     }
 }
