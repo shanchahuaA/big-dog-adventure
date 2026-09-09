@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:flower",
+  "config": {
+    "tries": 96,
+    "xz_spread": 7,
+    "y_spread": 3,
+    "feature": {
+      "feature": "minecraft:simple_block",
+      "config": {
+        "to_place": {
+          "type": "minecraft:simple_state_provider",
+          "state": {
+            "Name": "big-fruit-mod:cotton_crop",
+            "Properties": { "age": "7" }
+          }
+        }
+      }
+    }
+  }
+}

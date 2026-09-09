@@ -2,6 +2,7 @@ package com.mymod.bigfruit.registry;
 
 import com.mymod.bigfruit.BigFruitMod;
 import com.mymod.bigfruit.entity.BigDogEntity;
+import com.mymod.bigfruit.entity.DingdongChicken;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricEntityTypeBuilder;
 import net.minecraft.entity.EntityDimensions;
@@ -25,8 +26,21 @@ public final class ModEntities {
                     .build()
     );
 
+    public static final EntityType<DingdongChicken> DINGDONG_CHICKEN = Registry.register(
+            Registries.ENTITY_TYPE,
+            BigFruitMod.id("dingdong_chicken"),
+            FabricEntityTypeBuilder.<DingdongChicken>createMob()
+                    .entityFactory(DingdongChicken::new)
+                    .spawnGroup(SpawnGroup.CREATURE)
+                    .dimensions(EntityDimensions.fixed(0.4f, 0.7f))
+                    .trackRangeBlocks(64)
+                    .trackedUpdateRate(2)
+                    .build()
+    );
+
     public static void register() {
         FabricDefaultAttributeRegistry.register(BIG_DOG, BigDogEntity.createAttributes());
+        FabricDefaultAttributeRegistry.register(DINGDONG_CHICKEN, DingdongChicken.createAttributes());
         BigFruitMod.LOGGER.info("Registering entities for {}", BigFruitMod.MOD_ID);
     }
 }

@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "C",
+    "S"
+  ],
+  "key": {
+    "C": { "item": "big-fruit-mod:cotton" },
+    "S": { "item": "minecraft:stick" }
+  },
+  "result": { "item": "big-fruit-mod:cotton_swab", "count": 2 }
+}

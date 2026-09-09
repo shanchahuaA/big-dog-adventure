@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "minecraft:azure_bluet" },
+    { "item": "minecraft:azure_bluet" },
+    { "item": "minecraft:azure_bluet" },
+    { "item": "minecraft:bowl" }
+  ],
+  "result": { "item": "big-fruit-mod:herbal_soup", "count": 1 }
+}

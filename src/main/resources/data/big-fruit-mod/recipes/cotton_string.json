@@ -1,0 +1,7 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "big-fruit-mod:cotton" }
+  ],
+  "result": { "item": "minecraft:string", "count": 2 }
+}

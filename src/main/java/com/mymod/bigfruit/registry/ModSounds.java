@@ -11,6 +11,7 @@ public final class ModSounds {
 
     public static final SoundEvent BIG_DOG_CHARGE_LOOP = register("big_dog_charge_loop");
     public static final SoundEvent BIG_DOG_CALL = register("big_dog_call");
+    public static final SoundEvent DINGDONG_BGM = register("dingdong_bgm");
 
     private static SoundEvent register(String path) {
         Identifier id = BigFruitMod.id(path);

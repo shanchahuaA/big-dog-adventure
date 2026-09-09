@@ -4,6 +4,7 @@ import com.mymod.bigfruit.BigFruitMod;
 import com.mymod.bigfruit.registry.ModEntities;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.minecraft.item.BlockItem;
+import net.minecraft.item.FoodComponent;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemGroups;
 import net.minecraft.item.SpawnEggItem;
@@ -21,6 +22,16 @@ public class ModItems {
             new BigDogSummonItem(new Item.Settings()));
     public static final Item MASK = register("mask",
             new MaskItem(new Item.Settings()));
+    public static final Item COTTON = register("cotton", new Item(new Item.Settings()));
+    public static final Item COTTON_SEEDS = register("cotton_seeds",
+            new CottonSeedItem(new Item.Settings()));
+    public static final Item COTTON_SWAB = register("cotton_swab",
+            new CottonSwabItem(new Item.Settings()));
+    public static final Item DINGDONG_CHICKEN_SPAWN_EGG = register("dingdong_chicken_spawn_egg",
+            new SpawnEggItem(ModEntities.DINGDONG_CHICKEN, 0xF5D76E, 0xFFFFFF, new Item.Settings()));
+    public static final Item HERBAL_SOUP = register("herbal_soup",
+            new HerbalSoupItem(new Item.Settings().food(new FoodComponent.Builder()
+                    .hunger(2).saturationModifier(1.2f).alwaysEdible().build())));
 
     public static Item registerItems(String id, Item item){
         return Registry.register(Registries.ITEM, RegistryKey.of(Registries.ITEM.getKey(), new Identifier(BigFruitMod.MOD_ID, id)), item);
@@ -47,13 +58,20 @@ public class ModItems {
     public static void registerItems(){
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.SPAWN_EGGS).register(entries -> {
             entries.add(BIG_DOG_SPAWN_EGG);
+            entries.add(DINGDONG_CHICKEN_SPAWN_EGG);
         });
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.INGREDIENTS).register(entries -> {
             entries.add(BIG_DOG_SUMMON);
             entries.add(MASK);
+            entries.add(COTTON);
+            entries.add(COTTON_SEEDS);
+            entries.add(COTTON_SWAB);
         });
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.COMBAT).register(entries -> {
             entries.add(MASK);
+        });
+        ItemGroupEvents.modifyEntriesEvent(ItemGroups.FOOD_AND_DRINK).register(entries -> {
+            entries.add(HERBAL_SOUP);
         });
     }
 }

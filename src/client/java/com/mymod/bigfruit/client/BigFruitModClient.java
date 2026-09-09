@@ -8,6 +8,7 @@ import com.mymod.bigfruit.registry.ModSounds;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
+import net.minecraft.client.render.entity.ChickenEntityRenderer;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.sound.SoundInstance;
 import net.minecraft.sound.SoundCategory;
@@ -25,6 +26,7 @@ public class BigFruitModClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		EntityRendererRegistry.register(ModEntities.BIG_DOG, BigDogBillboardRenderer::new);
+		EntityRendererRegistry.register(ModEntities.DINGDONG_CHICKEN, ChickenEntityRenderer::new);
 
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			// Handle world switch: clear old sounds when world instance changes (dimension/server switch, ID reuse)

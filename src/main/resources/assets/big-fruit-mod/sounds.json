@@ -12,5 +12,14 @@
     ],
     "subtitle": "big-fruit-mod.subtitle.big_dog_call",
     "attenuation_distance": 64
+  },
+  "dingdong_bgm": {
+    "sounds": [
+      {
+        "name": "big-fruit-mod:entity/dingdong_chicken/bgm",
+        "stream": true
+      }
+    ],
+    "subtitle": "big-fruit-mod.subtitle.dingdong_bgm"
   }
 }

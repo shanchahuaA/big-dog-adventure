@@ -5,5 +5,14 @@
   "entity.big-fruit-mod.big_dog": "Big Dog",
   "big-fruit-mod.subtitle.big_dog_charge": "Big dog charging",
   "big-fruit-mod.subtitle.big_dog_call": "Big dog calls",
-  "item.big-fruit-mod.mask": "Mask"
+  "item.big-fruit-mod.mask": "Mask",
+  "item.big-fruit-mod.cotton": "Cotton",
+  "item.big-fruit-mod.cotton_seeds": "Cotton Seeds",
+  "block.big-fruit-mod.cotton_crop": "Cotton Crop",
+  "item.big-fruit-mod.cotton_swab": "Cotton Swab",
+  "entity.big-fruit-mod.dingdong_chicken": "Dingdong Chicken",
+  "item.big-fruit-mod.dingdong_chicken_spawn_egg": "Dingdong Chicken Spawn Egg",
+  "big-fruit-mod.subtitle.dingdong_bgm": "Dingdong chorus",
+  "item.big-fruit-mod.herbal_soup": "Herbal Soup",
+  "effect.big-fruit-mod.herbal_grace": "Herbal Grace"
 }

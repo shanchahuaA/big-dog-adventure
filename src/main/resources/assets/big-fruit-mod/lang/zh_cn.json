@@ -5,5 +5,14 @@
   "entity.big-fruit-mod.big_dog": "大狗叫",
   "big-fruit-mod.subtitle.big_dog_charge": "大狗蓄力中",
   "big-fruit-mod.subtitle.big_dog_call": "大狗叫",
-  "item.big-fruit-mod.mask": "口罩"
+  "item.big-fruit-mod.mask": "口罩",
+  "item.big-fruit-mod.cotton": "棉花",
+  "item.big-fruit-mod.cotton_seeds": "棉花种子",
+  "block.big-fruit-mod.cotton_crop": "棉花作物",
+  "item.big-fruit-mod.cotton_swab": "棉签",
+  "entity.big-fruit-mod.dingdong_chicken": "叮咚鸡",
+  "item.big-fruit-mod.dingdong_chicken_spawn_egg": "叮咚鸡刷怪蛋",
+  "big-fruit-mod.subtitle.dingdong_bgm": "叮咚鸡合唱",
+  "item.big-fruit-mod.herbal_soup": "草药汤",
+  "effect.big-fruit-mod.herbal_grace": "草药庇护"
 }

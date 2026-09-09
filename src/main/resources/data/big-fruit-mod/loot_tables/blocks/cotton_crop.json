@@ -1,0 +1,60 @@
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "big-fruit-mod:cotton",
+          "conditions": [
+            {
+              "condition": "minecraft:block_state_property",
+              "block": "big-fruit-mod:cotton_crop",
+              "properties": { "age": "7" }
+            }
+          ],
+          "functions": [
+            { "function": "minecraft:set_count", "count": 2.0 },
+            { "function": "minecraft:explosion_decay" }
+          ]
+        }
+      ]
+    },
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:alternatives",
+          "children": [
+            {
+              "type": "minecraft:item",
+              "name": "big-fruit-mod:cotton_seeds",
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "big-fruit-mod:cotton_crop",
+                  "properties": { "age": "7" }
+                }
+              ],
+              "functions": [
+                {
+                  "function": "minecraft:set_count",
+                  "count": { "type": "minecraft:uniform", "min": 1.0, "max": 2.0 }
+                },
+                { "function": "minecraft:explosion_decay" }
+              ]
+            },
+            {
+              "type": "minecraft:item",
+              "name": "big-fruit-mod:cotton_seeds",
+              "functions": [
+                { "function": "minecraft:explosion_decay" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

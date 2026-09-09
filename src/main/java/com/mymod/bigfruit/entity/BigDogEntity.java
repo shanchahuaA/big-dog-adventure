@@ -1,6 +1,8 @@
 package com.mymod.bigfruit.entity;
 
+import com.mymod.bigfruit.util.HorseColorUtil;
 import com.mymod.bigfruit.item.ModItems;
+import com.mymod.bigfruit.registry.ModEffects;
 import net.minecraft.entity.EntityGroup;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.LivingEntity;
@@ -18,6 +20,7 @@ import net.minecraft.entity.data.TrackedData;
 import net.minecraft.entity.data.TrackedDataHandlerRegistry;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.mob.Monster;
+import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.mob.PathAwareEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
@@ -43,6 +46,7 @@ public class BigDogEntity extends PathAwareEntity {
     public static final float DAMAGE = 6.0f;
     public static final int DAMAGE_INTERVAL = 10;
     public static final int BLOCK_BREAK_DURATION_TICKS = 50; // 50格在50t内跑完（1.0段/tick，RANGE 50）
+    public static final int SILENCE_TICKS = 900; // 棉签沉默 45s
 
     private static final UUID CHARGING_ARMOR_UUID = UUID.fromString("3a1c7c2b-1c4a-4e2a-9c9a-2d5b1e2a3c4d");
     private static final EntityAttributeModifier CHARGING_ARMOR_BONUS = new EntityAttributeModifier(CHARGING_ARMOR_UUID, "Charging armor bonus", 8.0, EntityAttributeModifier.Operation.ADDITION);
@@ -73,6 +77,20 @@ public class BigDogEntity extends PathAwareEntity {
     private double firingDirZ;
     private int processedSegments;
     private final Set<BlockPos> brokenThisAttack = new HashSet<>();
+    private long silencedUntilTick;
+
+    public void silence(int ticks) {
+        if (this.getWorld().isClient) {
+            return;
+        }
+        long now = this.getWorld().getTime();
+        this.silencedUntilTick = Math.max(this.silencedUntilTick, now + ticks);
+        this.cancelAttack();
+    }
+
+    public boolean isSilenced() {
+        return this.getWorld().getTime() < this.silencedUntilTick;
+    }
 
     public BigDogEntity(EntityType<? extends PathAwareEntity> entityType, World world) {
         super(entityType, world);
@@ -140,24 +158,26 @@ public class BigDogEntity extends PathAwareEntity {
         return !stack.isEmpty() && stack.isOf(ModItems.MASK);
     }
 
-    private boolean isValidTarget(LivingEntity entity) {
-        if (entity == null || entity == this) return false;
+    public static boolean isValidTarget(LivingEntity self, LivingEntity entity) {
+        if (entity == null || entity == self) return false;
         if (!entity.isAlive() || entity.isRemoved()) return false;
         if (entity.isSpectator()) return false;
         if (entity instanceof BigDogEntity) return false;
-        if (entity instanceof PlayerEntity player && isWearingMask(player)) return false;
+        if (entity instanceof PlayerEntity player
+                && (isWearingMask(player) || player.hasStatusEffect(ModEffects.HERBAL_GRACE))) return false;
         return true;
     }
 
-    private LivingEntity findPreferredTarget() {
+    public static LivingEntity findPreferredTarget(MobEntity self) {
         double r = 64.0;
-        Box box = new Box(this.getX() - r, this.getY() - r, this.getZ() - r, this.getX() + r, this.getY() + r, this.getZ() + r);
-        List<LivingEntity> candidates = this.getWorld().getEntitiesByClass(LivingEntity.class, box, e -> {
-            if (e == this) return false;
+        Box box = new Box(self.getX() - r, self.getY() - r, self.getZ() - r, self.getX() + r, self.getY() + r, self.getZ() + r);
+        List<LivingEntity> candidates = self.getWorld().getEntitiesByClass(LivingEntity.class, box, e -> {
+            if (e == self) return false;
             if (e instanceof BigDogEntity) return false;
             if (!e.isAlive() || e.isRemoved()) return false;
             if (e.isSpectator()) return false;
-            if (e instanceof PlayerEntity player && isWearingMask(player)) return false;
+            if (e instanceof PlayerEntity player
+                    && (isWearingMask(player) || player.hasStatusEffect(ModEffects.HERBAL_GRACE))) return false;
             return true;
         });
         LivingEntity best = null;
@@ -165,7 +185,9 @@ public class BigDogEntity extends PathAwareEntity {
         double bestDistSq = Double.MAX_VALUE;
         for (LivingEntity e : candidates) {
             int score = 0;
-            if (e.getType() == EntityType.WARDEN) {
+            if (e instanceof PlayerEntity p && HorseColorUtil.isRidingRed(p)) {
+                score = 5;
+            } else if (e.getType() == EntityType.WARDEN) {
                 score = 4;
             } else if (e.getGroup() == EntityGroup.UNDEAD) {
                 score = 3;
@@ -176,7 +198,7 @@ public class BigDogEntity extends PathAwareEntity {
             } else {
                 continue;
             }
-            double distSq = this.squaredDistanceTo(e);
+            double distSq = self.squaredDistanceTo(e);
             if (distSq > r * r) continue;
             if (score > bestScore || (score == bestScore && distSq < bestDistSq)) {
                 bestScore = score;
@@ -185,6 +207,24 @@ public class BigDogEntity extends PathAwareEntity {
             }
         }
         return best;
+    }
+
+    public void setInitialTarget(LivingEntity target) {
+        this.revengeTarget = target;
+        this.setTarget(target);
+    }
+
+    public void forgetTarget(LivingEntity target) {
+        if (target == null) {
+            return;
+        }
+        if (this.revengeTarget == target) {
+            this.revengeTarget = null;
+            this.setTarget(null);
+        }
+        if (this.chargingTarget == target) {
+            this.cancelAttack();
+        }
     }
 
     @Override
@@ -204,7 +244,8 @@ public class BigDogEntity extends PathAwareEntity {
             if (attackerLiving != null) {
                 if (attackerLiving instanceof BigDogEntity) {
                     attackerLiving = null;
-                } else if (attackerLiving instanceof PlayerEntity player && isWearingMask(player)) {
+                } else if (attackerLiving instanceof PlayerEntity player
+                        && (isWearingMask(player) || player.hasStatusEffect(ModEffects.HERBAL_GRACE))) {
                     attackerLiving = null;
                 } else if (attackerLiving.isSpectator()) {
                     attackerLiving = null;
@@ -213,7 +254,7 @@ public class BigDogEntity extends PathAwareEntity {
             if (attackerLiving != null) {
                 this.revengeTarget = attackerLiving;
                 this.setTarget(attackerLiving);
-                if (this.getState() == State.IDLE && this.cooldownTicksRemaining <= 0) {
+                if (this.getState() == State.IDLE && this.cooldownTicksRemaining <= 0 && !this.isSilenced()) {
                     double distSq = this.squaredDistanceTo(attackerLiving);
                     if (distSq <= RANGE * RANGE) {
                         this.startCharging();
@@ -307,14 +348,20 @@ public class BigDogEntity extends PathAwareEntity {
         }
         if (this.getState() == State.CHARGING) {
             if (this.chargingTarget != null) {
-                if (!isValidTarget(this.chargingTarget) || this.squaredDistanceTo(this.chargingTarget) > 64 * 64) {
+                if (!isValidTarget(this,this.chargingTarget) || this.squaredDistanceTo(this.chargingTarget) > 64 * 64) {
                     this.cancelAttack();
                     return;
                 }
-            } else if (this.revengeTarget != null && !isValidTarget(this.revengeTarget)) {
+            } else if (this.revengeTarget != null && !isValidTarget(this,this.revengeTarget)) {
                 this.cancelAttack();
                 return;
             }
+        }
+        if (this.isSilenced()) {
+            if (this.cooldownTicksRemaining > 0) {
+                this.cooldownTicksRemaining--;
+            }
+            return;
         }
 
         switch (this.getState()) {
@@ -323,7 +370,7 @@ public class BigDogEntity extends PathAwareEntity {
                     this.cooldownTicksRemaining--;
                 }
                 if (this.revengeTarget != null) {
-                    if (!isValidTarget(this.revengeTarget) || this.squaredDistanceTo(this.revengeTarget) > 64 * 64 || !this.revengeTarget.isAlive() || this.revengeTarget.isRemoved()) {
+                    if (!isValidTarget(this,this.revengeTarget) || this.squaredDistanceTo(this.revengeTarget) > 64 * 64 || !this.revengeTarget.isAlive() || this.revengeTarget.isRemoved()) {
                         this.revengeTarget = null;
                         this.setTarget(null);
                     }
@@ -346,7 +393,7 @@ public class BigDogEntity extends PathAwareEntity {
                     }
                 } else {
                     if (this.cooldownTicksRemaining <= 0) {
-                        LivingEntity found = findPreferredTarget();
+                        LivingEntity found = findPreferredTarget(this);
                         if (found != null) {
                             this.revengeTarget = found;
                             this.setTarget(found);
@@ -373,7 +420,7 @@ public class BigDogEntity extends PathAwareEntity {
     }
 
     private void tickCharging() {
-        if (this.chargingTarget != null && (!this.chargingTarget.isAlive() || this.chargingTarget.isRemoved() || !isValidTarget(this.chargingTarget))) {
+        if (this.chargingTarget != null && (!this.chargingTarget.isAlive() || this.chargingTarget.isRemoved() || !isValidTarget(this,this.chargingTarget))) {
             this.cancelAttack();
             return;
         }
@@ -448,11 +495,16 @@ public class BigDogEntity extends PathAwareEntity {
         for (LivingEntity target : candidates) {
             if (target == this) continue;
             if (target instanceof BigDogEntity) continue;
+            if (target instanceof DingdongChicken) continue;
             if (!target.isAlive()) continue;
             if (!isInBeam(target, origin, dir)) continue;
 
             DamageSource source = this.getDamageSources().mobAttack(this);
-            if (target.damage(source, DAMAGE)) {
+            float dmg = DAMAGE;
+            if (target instanceof PlayerEntity p && HorseColorUtil.isRidingRed(p)) {
+                dmg *= 2.0f;
+            }
+            if (target.damage(source, dmg)) {
                 target.takeKnockback(0.8, -dir.x, -dir.z);
                 if (target instanceof PlayerEntity) {
                     target.velocityModified = true;

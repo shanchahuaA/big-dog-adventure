@@ -3,7 +3,9 @@
 	"package": "com.mymod.bigfruit.mixin",
 	"compatibilityLevel": "JAVA_17",
 	"mixins": [
-		"ExampleMixin"
+		"ExampleMixin",
+		"HorseNbtMixin",
+		"PlayerStopRidingMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
