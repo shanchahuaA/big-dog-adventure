@@ -126,7 +126,6 @@ public final class ChickenBgmManager {
             if (entity instanceof HorseEntity horse && HorseColorUtil.isColored(horse)
                     && source.getAttacker() instanceof LivingEntity attacker
                     && isSummonedWarden(attacker)) {
-                BigDogMod.LOGGER.info("[WardenGuard] damage on colored horse denied"); // TEMP-PROBE
                 return false;
             }
             return true;
@@ -156,24 +155,16 @@ public final class ChickenBgmManager {
     private static void tickChickens(ServerWorld world, long time) {
         Map<UUID, List<WizardChicken>> byTarget = new HashMap<>();
         List<WizardChicken> all = new ArrayList<>();
-        int totalChickens = 0; // TEMP-PROBE
-        int targetedChickens = 0; // TEMP-PROBE
         for (Entity e : world.iterateEntities()) {
             if (!(e instanceof WizardChicken chicken) || !chicken.isAlive() || chicken.isRemoved()) {
                 continue;
             }
-            totalChickens++; // TEMP-PROBE
             all.add(chicken);
             LivingEntity target = chicken.getBgmTarget();
             if (target == null || !target.isAlive() || target.isRemoved()) {
                 continue;
             }
-            targetedChickens++; // TEMP-PROBE
             byTarget.computeIfAbsent(target.getUuid(), u -> new ArrayList<>()).add(chicken);
-        }
-        if (time % 100 == 0) { // TEMP-PROBE
-            BigDogMod.LOGGER.info("[ChorusBgm] chickens={} targeted={} groups={}",
-                    totalChickens, targetedChickens, byTarget.size());
         }
         Set<UUID> seen = new HashSet<>();
         Set<UUID> readyIds = new HashSet<>();
@@ -193,42 +184,6 @@ public final class ChickenBgmManager {
                     ready.add(chicken);
                     readyIds.add(chicken.getUuid());
                 }
-            }
-            if (time % 100 == 0) { // TEMP-PROBE
-                int withSlot = 0; // TEMP-PROBE
-                int nearSlot = 0; // TEMP-PROBE
-                int facingOk = 0; // TEMP-PROBE
-                double minD2 = Double.MAX_VALUE; // TEMP-PROBE
-                Vec3d minChPos = null; // TEMP-PROBE
-                Vec3d minSlotPos = null; // TEMP-PROBE
-                for (WizardChicken c : group) { // TEMP-PROBE
-                    Vec3d s = SLOTS.get(c.getUuid()); // TEMP-PROBE
-                    if (s == null) { // TEMP-PROBE
-                        continue; // TEMP-PROBE
-                    } // TEMP-PROBE
-                    withSlot++; // TEMP-PROBE
-                    double d2 = c.squaredDistanceTo(s.x, s.y, s.z); // TEMP-PROBE
-                    if (d2 < minD2) { // TEMP-PROBE
-                        minD2 = d2; // TEMP-PROBE
-                        minChPos = c.getPos(); // TEMP-PROBE
-                        minSlotPos = s; // TEMP-PROBE
-                    } // TEMP-PROBE
-                    if (d2 <= SLOT_READY_DIST_SQ) { // TEMP-PROBE
-                        nearSlot++; // TEMP-PROBE
-                    } // TEMP-PROBE
-                    if (isFacing(c, target, SLOT_READY_FACING_DEG)) { // TEMP-PROBE
-                        facingOk++; // TEMP-PROBE
-                    } // TEMP-PROBE
-                } // TEMP-PROBE
-                BigDogMod.LOGGER.info(
-                        "[ChorusBgm] group={} ready={} slot={} near={} facing={} minD2={} ch={} sl={} target={}", // TEMP-PROBE
-                        group.size(), ready.size(), withSlot, nearSlot, facingOk,
-                        minD2 == Double.MAX_VALUE ? -1 : String.format("%.1f", minD2),
-                        minChPos == null ? "-" : String.format("%.1f,%.1f,%.1f",
-                                minChPos.x, minChPos.y, minChPos.z),
-                        minSlotPos == null ? "-" : String.format("%.1f,%.1f,%.1f",
-                                minSlotPos.x, minSlotPos.y, minSlotPos.z),
-                        target.getName().getString()); // TEMP-PROBE
             }
             if (ready.isEmpty()) {
                 continue;
@@ -392,14 +347,7 @@ public final class ChickenBgmManager {
                     world.random.nextFloat() * 360.0f, 0.0f);
             dog.setInitialTarget(target);
             world.spawnEntity(dog);
-            BigDogMod.LOGGER.info("[ChorusBgm] dog spawned for {}", target.getName().getString()); // TEMP-PROBE
         }
-        if (target instanceof ServerPlayerEntity probePlayer) { // TEMP-PROBE
-            BigDogMod.LOGGER.info("[ChorusBgm] horse gate: talisman={} coloredRiding={} vehicle={}", // TEMP-PROBE
-                    BigDogEntity.isWearingTalisman(probePlayer), // TEMP-PROBE
-                    HorseColorUtil.isRidingColored(probePlayer), // TEMP-PROBE
-                    probePlayer.getVehicle()); // TEMP-PROBE
-        } // TEMP-PROBE
         if (target instanceof ServerPlayerEntity player && !BigDogEntity.isWearingTalisman(player)) {
             if (HorseColorUtil.isRidingColored(player)) {
                 return;
@@ -415,8 +363,6 @@ public final class ChickenBgmManager {
                 HorseColorUtil.setDemonized(horse);
                 world.spawnEntity(horse);
                 player.startRiding(horse, true);
-                BigDogMod.LOGGER.info("[ChorusBgm] DEMONIZED HORSE spawned + forced mount {}", // TEMP-PROBE
-                        player.getName().getString()); // TEMP-PROBE
             }
         }
     }
@@ -497,12 +443,6 @@ public final class ChickenBgmManager {
             if (target != null && wardenMustNotTarget(target)) {
                 warden.getBrain().forget(MemoryModuleType.ATTACK_TARGET);
                 warden.getAngerManager().removeSuspect(target);
-                if (target instanceof PlayerEntity mountedPlayer) { // TEMP-PROBE
-                    BigDogMod.LOGGER.info("[WardenTimer] warden DISENGAGE from mounted {}", // TEMP-PROBE
-                            mountedPlayer.getName().getString()); // TEMP-PROBE
-                } else if (target instanceof HorseEntity) { // TEMP-PROBE
-                    BigDogMod.LOGGER.info("[WardenTimer] warden dropped colored-horse target"); // TEMP-PROBE
-                }
             }
             UUID ownerUuid = WARDEN_OWNERS.get(warden.getUuid());
             PlayerEntity owner = ownerUuid == null ? null
@@ -511,8 +451,6 @@ public final class ChickenBgmManager {
                 WARDEN_RETREAT_ARMED_AT.remove(warden.getUuid());
                 if (warden.getBrain().hasMemoryModule(MemoryModuleType.DIG_COOLDOWN)) {
                     warden.getBrain().forget(MemoryModuleType.DIG_COOLDOWN);
-                    BigDogMod.LOGGER.info("[WardenTimer] warden RETREAT (orphan) {}", // TEMP-PROBE
-                            warden.getUuid()); // TEMP-PROBE
                 }
             } else if (!owner.isAlive() || owner.isRemoved()) {
                 WARDEN_RETREAT_ARMED_AT.remove(warden.getUuid());
@@ -520,13 +458,9 @@ public final class ChickenBgmManager {
                 Long armedAt = WARDEN_RETREAT_ARMED_AT.get(warden.getUuid());
                 if (armedAt == null) {
                     WARDEN_RETREAT_ARMED_AT.put(warden.getUuid(), time);
-                    BigDogMod.LOGGER.info("[WardenTimer] warden RETREAT armed {}", // TEMP-PROBE
-                            owner.getName().getString()); // TEMP-PROBE
                 } else if (time - armedAt >= RETREAT_DELAY_TICKS) {
                     WARDEN_RETREAT_ARMED_AT.remove(warden.getUuid());
                     warden.getBrain().forget(MemoryModuleType.DIG_COOLDOWN);
-                    BigDogMod.LOGGER.info("[WardenTimer] warden RETREAT firing {}", // TEMP-PROBE
-                            owner.getName().getString()); // TEMP-PROBE
                 }
             } else {
                 WARDEN_RETREAT_ARMED_AT.remove(warden.getUuid());
@@ -615,12 +549,8 @@ public final class ChickenBgmManager {
                 }
                 if (time - follow.lastSpotTick > WARDEN_GRACE_TICKS) {
                     FOLLOWS.remove(uuid);
-                    BigDogMod.LOGGER.info("[WardenTimer] p={} grace EXPIRED -> reset (off {} ticks)",
-                            player.getName().getString(), time - follow.lastSpotTick); // TEMP-PROBE
                 } else if (follow.pauseStartTick < 0) {
                     follow.pauseStartTick = time;
-                    BigDogMod.LOGGER.info("[WardenTimer] p={} spotters=0 -> grace started",
-                            player.getName().getString()); // TEMP-PROBE
                 }
                 continue;
             }
@@ -635,8 +565,6 @@ public final class ChickenBgmManager {
                 }
                 follow.lastWardenTick += paused;
                 follow.pauseStartTick = -1L;
-                BigDogMod.LOGGER.info("[WardenTimer] p={} grace resumed -> compensated {} ticks",
-                        player.getName().getString(), paused); // TEMP-PROBE
             }
             follow.lastSpotTick = time;
             if (follow.firstSeenTick < 0) {
@@ -649,13 +577,6 @@ public final class ChickenBgmManager {
             long repeatReduce = alive > 0 ? REPEAT_REDUCE_TICKS : REPEAT_EMPTY_REDUCE_TICKS;
             long repeatThreshold = Math.max(SUMMON_MIN_TICKS,
                     repeatBase - repeatReduce * (count - 1));
-            if (time % 100 == 0) { // TEMP-PROBE
-                BigDogMod.LOGGER.info(
-                        "[WardenTimer] p={} spotters={} elapsed={} thr1={} sinceWarden={} thr2={} alive={}",
-                        player.getName().getString(), count,
-                        follow.firstSeenTick < 0 ? -1L : time - follow.firstSeenTick,
-                        firstThreshold, time - follow.lastWardenTick, repeatThreshold, alive);
-            }
             if (time - follow.firstSeenTick >= firstThreshold
                     && time - follow.lastWardenTick >= repeatThreshold) {
                 follow.firstSeenTick = -1L;
@@ -665,8 +586,6 @@ public final class ChickenBgmManager {
                         WARDEN_CIRCLE_RADIUS, true);
                 PENDING_WARDENS.add(new PendingWarden(player.getUuid(), world.getRegistryKey(), spot,
                         time + WARDEN_CIRCLE_DELAY_TICKS));
-                BigDogMod.LOGGER.info("[WardenTimer] warden queued for {} (spotters={}, due +{}t)",
-                        player.getName().getString(), count, WARDEN_CIRCLE_DELAY_TICKS); // TEMP-PROBE
             }
         }
         MinecraftServer server = world.getServer();
@@ -701,7 +620,6 @@ public final class ChickenBgmManager {
             it.remove();
             ServerPlayerEntity owner = server.getPlayerManager().getPlayer(pending.owner);
             if (owner == null || !owner.isAlive() || owner.isRemoved()) {
-                BigDogMod.LOGGER.info("[WardenTimer] pending warden dropped (owner gone)"); // TEMP-PROBE
                 continue;
             }
             spawnSummonedWarden(world, owner, pending.spot);
@@ -724,8 +642,6 @@ public final class ChickenBgmManager {
         warden.getBrain().remember(MemoryModuleType.DIG_COOLDOWN, Unit.INSTANCE, 1200L);
         warden.getBrain().remember(MemoryModuleType.SONIC_BOOM_COOLDOWN, Unit.INSTANCE, 200L);
         world.spawnEntity(warden);
-        BigDogMod.LOGGER.info("[WardenTimer] SUMMONED warden for {} (after {}t circle)",
-                player.getName().getString(), WARDEN_CIRCLE_DELAY_TICKS); // TEMP-PROBE
     }
 
     private static void tickVillages(ServerWorld world, long time) {
