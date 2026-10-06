@@ -23,7 +23,7 @@ loom {
 	splitEnvironmentSourceSets()
 
 	mods {
-		"big-fruit-mod" {
+		"big-dog-adventure" {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
 		}

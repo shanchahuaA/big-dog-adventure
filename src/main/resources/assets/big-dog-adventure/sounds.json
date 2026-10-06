@@ -1,0 +1,25 @@
+{
+  "big_dog_charge_loop": {
+    "sounds": [
+      "big-dog-adventure:entity/big_dog/charge_loop"
+    ],
+    "subtitle": "big-dog-adventure.subtitle.big_dog_charge",
+    "attenuation_distance": 64
+  },
+  "big_dog_call": {
+    "sounds": [
+      "big-dog-adventure:entity/big_dog/call"
+    ],
+    "subtitle": "big-dog-adventure.subtitle.big_dog_call",
+    "attenuation_distance": 64
+  },
+  "wizard_chicken_bgm": {
+    "sounds": [
+      {
+        "name": "big-dog-adventure:entity/wizard_chicken/bgm",
+        "stream": true
+      }
+    ],
+    "subtitle": "big-dog-adventure.subtitle.wizard_chicken_bgm"
+  }
+}

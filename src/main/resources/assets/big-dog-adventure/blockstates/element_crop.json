@@ -1,0 +1,12 @@
+{
+  "variants": {
+    "age=0": { "model": "big-dog-adventure:block/element_stage0" },
+    "age=1": { "model": "big-dog-adventure:block/element_stage1" },
+    "age=2": { "model": "big-dog-adventure:block/element_stage2" },
+    "age=3": { "model": "big-dog-adventure:block/element_stage3" },
+    "age=4": { "model": "big-dog-adventure:block/element_stage4" },
+    "age=5": { "model": "big-dog-adventure:block/element_stage5" },
+    "age=6": { "model": "big-dog-adventure:block/element_stage6" },
+    "age=7": { "model": "big-dog-adventure:block/element_stage7" }
+  }
+}

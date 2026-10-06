@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "C",
+    "S"
+  ],
+  "key": {
+    "C": { "item": "big-dog-adventure:element_flower" },
+    "S": { "item": "minecraft:stick" }
+  },
+  "result": { "item": "big-dog-adventure:element_core", "count": 2 }
+}

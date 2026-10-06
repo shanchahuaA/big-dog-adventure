@@ -1,0 +1,19 @@
+{
+  "item.big-dog-adventure.big_dog_spawn_egg": "大狗刷怪蛋",
+  "item.big-dog-adventure.big_dog_summon": "大狗召唤物",
+  "entity.big-dog-adventure.big_dog": "大狗叫",
+  "big-dog-adventure.subtitle.big_dog_charge": "大狗蓄力中",
+  "big-dog-adventure.subtitle.big_dog_call": "大狗叫",
+  "item.big-dog-adventure.talisman": "护符",
+  "item.big-dog-adventure.element_flower": "元素花",
+  "item.big-dog-adventure.element_flower_seeds": "元素花种子",
+  "block.big-dog-adventure.element_crop": "元素作物",
+  "item.big-dog-adventure.element_core": "元素核心",
+  "entity.big-dog-adventure.wizard_chicken": "鸡法师",
+  "item.big-dog-adventure.wizard_chicken_spawn_egg": "鸡法师刷怪蛋",
+  "big-dog-adventure.subtitle.wizard_chicken_bgm": "鸡法师合唱",
+  "item.big-dog-adventure.mana_potion": "魔力药",
+  "effect.big-dog-adventure.mana_grace": "魔力庇护",
+  "big-dog-adventure.horse_color.demonized": "魔化马",
+  "big-dog-adventure.horse_color.sublimed": "升华马"
+}

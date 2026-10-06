@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/crop",
+  "textures": {
+    "crop": "big-dog-adventure:block/element_stage2"
+  }
+}

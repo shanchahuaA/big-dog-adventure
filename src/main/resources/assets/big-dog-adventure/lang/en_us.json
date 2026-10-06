@@ -1,0 +1,19 @@
+{
+  "item.big-dog-adventure.big_dog_spawn_egg": "Big Dog Spawn Egg",
+  "item.big-dog-adventure.big_dog_summon": "Big Dog Summon",
+  "entity.big-dog-adventure.big_dog": "Big Dog",
+  "big-dog-adventure.subtitle.big_dog_charge": "Big dog charging",
+  "big-dog-adventure.subtitle.big_dog_call": "Big dog calls",
+  "item.big-dog-adventure.talisman": "Talisman",
+  "item.big-dog-adventure.element_flower": "Element Flower",
+  "item.big-dog-adventure.element_flower_seeds": "Element Flower Seeds",
+  "block.big-dog-adventure.element_crop": "Element Crop",
+  "item.big-dog-adventure.element_core": "Element Core",
+  "entity.big-dog-adventure.wizard_chicken": "Wizard Chicken",
+  "item.big-dog-adventure.wizard_chicken_spawn_egg": "Wizard Chicken Spawn Egg",
+  "big-dog-adventure.subtitle.wizard_chicken_bgm": "Wizard Chicken chorus",
+  "item.big-dog-adventure.mana_potion": "Mana Potion",
+  "effect.big-dog-adventure.mana_grace": "Mana Grace",
+  "big-dog-adventure.horse_color.demonized": "Demonized Horse",
+  "big-dog-adventure.horse_color.sublimed": "Sublimed Horse"
+}

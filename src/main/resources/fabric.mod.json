@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 1,
-	"id": "big-fruit-mod",
+	"id": "big-dog-adventure",
 	"version": "${version}",
 	"name": "Big Fruit Mod",
 	"description": "This is an example description! Tell everyone what your mod is about!",
@@ -12,23 +12,23 @@
 		"sources": "https://github.com/FabricMC/fabric-example-mod"
 	},
 	"license": "CC0-1.0",
-	"icon": "assets/big-fruit-mod/icon.png",
+	"icon": "assets/big-dog-adventure/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"com.mymod.bigfruit.BigFruitMod"
+			"com.mymod.bigdog.BigDogMod"
 		],
 		"client": [
-			"com.mymod.bigfruit.client.BigFruitModClient"
+			"com.mymod.bigdog.client.BigDogModClient"
 		],
 		"fabric-datagen": [
-			"com.mymod.bigfruit.client.BigFruitModDataGenerator"
+			"com.mymod.bigdog.client.BigDogModDataGenerator"
 		]
 	},
 	"mixins": [
-		"big-fruit-mod.mixins.json",
+		"big-dog-adventure.mixins.json",
 		{
-			"config": "big-fruit-mod.client.mixins.json",
+			"config": "big-dog-adventure.client.mixins.json",
 			"environment": "client"
 		}
 	],

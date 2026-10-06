@@ -1,0 +1,15 @@
+{
+	"required": true,
+	"package": "com.mymod.bigdog.mixin",
+	"compatibilityLevel": "JAVA_17",
+	"mixins": [
+		"HorseNbtMixin",
+		"PlayerStopRidingMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}

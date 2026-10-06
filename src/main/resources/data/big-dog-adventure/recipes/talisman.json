@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "S S",
+    "C C",
+    "CCC"
+  ],
+  "key": {
+    "S": { "item": "minecraft:string" },
+    "C": { "item": "big-dog-adventure:element_flower" }
+  },
+  "result": { "item": "big-dog-adventure:talisman", "count": 1 }
+}
