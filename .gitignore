@@ -38,3 +38,25 @@ hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
+
+# AI collaboration / local-only docs (kept on disk, never committed)
+
+.scratch/
+.claude/
+.agents/
+.mcp.json
+AGENTS.md
+CLAUDE.md
+CONTEXT.md
+skills-lock.json
+docs/OPENCODE_*
+docs/BIG_DOG_PLAN_FOR_OPENCODE.md
+docs/handoff*
+docs/SESSION_HANDOFF*
+docs/adr/
+docs/agents/
+docs/reference/
+docs/TEST_MANUAL_*
+big-fruit-mod-template-1.20.1.zip
+temp.txt
+run/
