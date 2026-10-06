@@ -2,16 +2,17 @@
 	"schemaVersion": 1,
 	"id": "big-dog-adventure",
 	"version": "${version}",
-	"name": "Big Fruit Mod",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"name": "Big Dog Adventure",
+	"description": "A very loud dog, spell-casting chickens and enchanted horses — what could go wrong?",
 	"authors": [
-		"Me!"
+		"shanchahuaA"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"homepage": "https://github.com/shanchahuaA/big-dog-adventure",
+		"issues": "https://github.com/shanchahuaA/big-dog-adventure/issues",
+		"sources": "https://github.com/shanchahuaA/big-dog-adventure"
 	},
-	"license": "CC0-1.0",
+	"license": "MIT",
 	"icon": "assets/big-dog-adventure/icon.png",
 	"environment": "*",
 	"entrypoints": {
