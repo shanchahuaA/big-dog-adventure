@@ -69,6 +69,9 @@ public final class HorseTickHandler {
             String color = HorseColorUtil.getColor(horse);
             boolean playerRidden = horse.getFirstPassenger() instanceof PlayerEntity;
             HorseColorUtil.updateRedSpeed(horse, HorseColorUtil.RED.equals(color) && playerRidden);
+            if (color != null) {
+                HorseColorUtil.applyMaxHealth(horse, color, false);
+            }
             if (color != null && SEEN_HORSES.add(horse.getUuid()) && !horse.hasArmorInSlot()) {
                 HorseColorUtil.equipDyedArmor(horse, HorseColorUtil.RED.equals(color)
                         ? HorseColorUtil.RED_DYE : HorseColorUtil.GREEN_DYE);
@@ -108,14 +111,18 @@ public final class HorseTickHandler {
                 MASK_TIME.put(uuid, maskTicks);
                 if (time % 100 == 0) {
                     player.addStatusEffect(new StatusEffectInstance(StatusEffects.WEAKNESS, 110, 0));
-                    player.addStatusEffect(new StatusEffectInstance(StatusEffects.NAUSEA, 110, 0));
+                    player.addStatusEffect(new StatusEffectInstance(StatusEffects.NAUSEA, 110, 1));
                 }
             } else {
                 MASK_TIME.put(uuid, 0L);
             }
 
             if (HorseColorUtil.GREEN.equals(color)) {
-                if (!GREEN_SINCE.containsKey(uuid)) {
+                if (undeadHit && horse != null) {
+                    HorseColorUtil.setRed(horse);
+                    GREEN_SINCE.remove(uuid);
+                    MASK_TIME.put(uuid, 0L);
+                } else if (!GREEN_SINCE.containsKey(uuid)) {
                     GREEN_SINCE.put(uuid, time);
                 } else if (time - GREEN_SINCE.get(uuid) >= GREEN_SWAB_TICKS) {
                     GREEN_SINCE.put(uuid, time);

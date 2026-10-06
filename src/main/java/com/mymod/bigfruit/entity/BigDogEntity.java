@@ -1,6 +1,7 @@
 package com.mymod.bigfruit.entity;
 
 import com.mymod.bigfruit.util.HorseColorUtil;
+import com.mymod.bigfruit.ai.ChickenBgmManager;
 import com.mymod.bigfruit.item.ModItems;
 import com.mymod.bigfruit.registry.ModEffects;
 import net.minecraft.entity.EntityGroup;
@@ -22,6 +23,8 @@ import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.mob.PathAwareEntity;
+import net.minecraft.entity.mob.WardenEntity;
+import net.minecraft.entity.passive.HorseEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.util.math.BlockPos;
@@ -163,21 +166,26 @@ public class BigDogEntity extends PathAwareEntity {
         if (!entity.isAlive() || entity.isRemoved()) return false;
         if (entity.isSpectator()) return false;
         if (entity instanceof BigDogEntity) return false;
+        if (entity instanceof HorseEntity horse && HorseColorUtil.isColored(horse)) return false;
+        if (ChickenBgmManager.isSummonedWarden(entity)) return false;
         if (entity instanceof PlayerEntity player
                 && (isWearingMask(player) || player.hasStatusEffect(ModEffects.HERBAL_GRACE))) return false;
         return true;
     }
 
-    public static LivingEntity findPreferredTarget(MobEntity self) {
+    public static LivingEntity findPreferredTarget(MobEntity self, boolean includeMaskedHorseless) {
         double r = 64.0;
         Box box = new Box(self.getX() - r, self.getY() - r, self.getZ() - r, self.getX() + r, self.getY() + r, self.getZ() + r);
         List<LivingEntity> candidates = self.getWorld().getEntitiesByClass(LivingEntity.class, box, e -> {
             if (e == self) return false;
             if (e instanceof BigDogEntity) return false;
+            if (e instanceof HorseEntity horse && HorseColorUtil.isColored(horse)) return false;
             if (!e.isAlive() || e.isRemoved()) return false;
             if (e.isSpectator()) return false;
             if (e instanceof PlayerEntity player
-                    && (isWearingMask(player) || player.hasStatusEffect(ModEffects.HERBAL_GRACE))) return false;
+                    && (player.hasStatusEffect(ModEffects.HERBAL_GRACE)
+                        || (isWearingMask(player) && (!includeMaskedHorseless
+                            || HorseColorUtil.isRidingColored(player))))) return false;
             return true;
         });
         LivingEntity best = null;
@@ -187,11 +195,17 @@ public class BigDogEntity extends PathAwareEntity {
             int score = 0;
             if (e instanceof PlayerEntity p && HorseColorUtil.isRidingRed(p)) {
                 score = 5;
-            } else if (e.getType() == EntityType.WARDEN) {
+            } else if (includeMaskedHorseless && e instanceof PlayerEntity p
+                    && !HorseColorUtil.isRidingColored(p)) {
                 score = 4;
-            } else if (e.getGroup() == EntityGroup.UNDEAD) {
-                score = 3;
+            } else if (e.getType() == EntityType.WARDEN) {
+                if (ChickenBgmManager.isSummonedWarden(e)) {
+                    continue;
+                }
+                score = 4;
             } else if (e instanceof PlayerEntity) {
+                score = 3;
+            } else if (e.getGroup() == EntityGroup.UNDEAD) {
                 score = 2;
             } else if (e instanceof Monster) {
                 score = 1;
@@ -200,6 +214,7 @@ public class BigDogEntity extends PathAwareEntity {
             }
             double distSq = self.squaredDistanceTo(e);
             if (distSq > r * r) continue;
+            if (distSq > 100.0 && !self.canSee(e)) continue;
             if (score > bestScore || (score == bestScore && distSq < bestDistSq)) {
                 bestScore = score;
                 bestDistSq = distSq;
@@ -243,6 +258,10 @@ public class BigDogEntity extends PathAwareEntity {
             }
             if (attackerLiving != null) {
                 if (attackerLiving instanceof BigDogEntity) {
+                    attackerLiving = null;
+                } else if (attackerLiving instanceof HorseEntity horse && HorseColorUtil.isColored(horse)) {
+                    attackerLiving = null;
+                } else if (ChickenBgmManager.isSummonedWarden(attackerLiving)) {
                     attackerLiving = null;
                 } else if (attackerLiving instanceof PlayerEntity player
                         && (isWearingMask(player) || player.hasStatusEffect(ModEffects.HERBAL_GRACE))) {
@@ -393,7 +412,7 @@ public class BigDogEntity extends PathAwareEntity {
                     }
                 } else {
                     if (this.cooldownTicksRemaining <= 0) {
-                        LivingEntity found = findPreferredTarget(this);
+                        LivingEntity found = findPreferredTarget(this, false);
                         if (found != null) {
                             this.revengeTarget = found;
                             this.setTarget(found);
@@ -496,6 +515,8 @@ public class BigDogEntity extends PathAwareEntity {
             if (target == this) continue;
             if (target instanceof BigDogEntity) continue;
             if (target instanceof DingdongChicken) continue;
+            if (target instanceof HorseEntity horse && HorseColorUtil.isColored(horse)) continue;
+            if (target instanceof WardenEntity && ChickenBgmManager.isSummonedWarden(target)) continue;
             if (!target.isAlive()) continue;
             if (!isInBeam(target, origin, dir)) continue;
 

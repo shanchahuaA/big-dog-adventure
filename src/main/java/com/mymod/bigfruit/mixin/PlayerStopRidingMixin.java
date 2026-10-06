@@ -15,13 +15,11 @@ public abstract class PlayerStopRidingMixin {
     @Inject(method = "stopRiding", at = @At("HEAD"), cancellable = true)
     private void bigfruit$lockColoredHorse(CallbackInfo ci) {
         ServerPlayerEntity self = (ServerPlayerEntity) (Object) this;
-        if (!(self.getVehicle() instanceof HorseEntity horse)) {
-            return;
-        }
-        String color = HorseColorUtil.getColor(horse);
+        String color = HorseColorUtil.getRiddenColor(self);
         if (color == null) {
             return;
         }
+        HorseEntity horse = (HorseEntity) self.getVehicle();
         if (!self.isSneaking() || !horse.isAlive() || !self.isAlive()) {
             return;
         }

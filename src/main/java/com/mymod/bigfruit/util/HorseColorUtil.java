@@ -23,6 +23,9 @@ public final class HorseColorUtil {
     public static final int RED_DYE = 0xE02020;
     public static final int GREEN_DYE = 0x20C020;
 
+    public static final double RED_MAX_HEALTH = 300.0;
+    public static final double GREEN_MAX_HEALTH = 500.0;
+
     private static final UUID RED_SPEED_UUID = UUID.fromString("7d4e9c1a-2b5f-4e8a-9d3c-6f1a2b3c4d5e");
     private static final EntityAttributeModifier RED_SPEED_BONUS = new EntityAttributeModifier(
             RED_SPEED_UUID, "Red horse speed", 1.0, EntityAttributeModifier.Operation.MULTIPLY_BASE);
@@ -51,14 +54,34 @@ public final class HorseColorUtil {
         }
     }
 
+    public static boolean isColored(HorseEntity horse) {
+        return getColor(horse) != null;
+    }
+
+    public static void applyMaxHealth(HorseEntity horse, String color, boolean heal) {
+        double expected = GREEN.equals(color) ? GREEN_MAX_HEALTH : RED_MAX_HEALTH;
+        EntityAttributeInstance health = horse.getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH);
+        if (health == null) {
+            return;
+        }
+        if (health.getBaseValue() != expected) {
+            health.setBaseValue(expected);
+        }
+        if (heal || horse.getHealth() > expected) {
+            horse.setHealth((float) expected);
+        }
+    }
+
     public static void setRed(HorseEntity horse) {
         setRaw(horse, RED);
         equipDyedArmor(horse, RED_DYE);
+        applyMaxHealth(horse, RED, true);
     }
 
     public static void setGreen(HorseEntity horse) {
         setRaw(horse, GREEN);
         equipDyedArmor(horse, GREEN_DYE);
+        applyMaxHealth(horse, GREEN, true);
     }
 
     public static void clear(HorseEntity horse) {
@@ -68,6 +91,11 @@ public final class HorseColorUtil {
 
     public static boolean isRidingRed(PlayerEntity player) {
         return RED.equals(getRiddenColor(player));
+    }
+
+    /** 唯一的「骑马」判定入口：只有骑彩马（红/绿）才算，骑普通马不算。 */
+    public static boolean isRidingColored(PlayerEntity player) {
+        return getRiddenColor(player) != null;
     }
 
     public static String getRiddenColor(PlayerEntity player) {
