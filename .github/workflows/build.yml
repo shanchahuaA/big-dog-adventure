@@ -21,6 +21,8 @@ jobs:
           distribution: 'microsoft'
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
+      - name: terminology & lang checks
+        run: python3 scripts/check_terminology.py
       - name: build
         run: ./gradlew build
       - name: capture build artifacts

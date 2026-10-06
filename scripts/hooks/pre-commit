@@ -1,0 +1,4 @@
+#!/bin/sh
+# 提交前机械检查：TEMP-PROBE 探针 / 术语避免词 / lang 健康度。
+# 实现与规则说明见 scripts/check_terminology.py（词表口径的唯一源是 CONTEXT.md）。
+exec python "$(git rev-parse --show-toplevel)/scripts/check_terminology.py" --staged
